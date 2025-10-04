@@ -329,36 +329,6 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       if (holdTime < 150 && draggedPartRef.current && !hasMovedRef.current) {
         const part = draggedPartRef.current
         onPartSelect(selectedPart === part.name ? null : part.name)
-
-        if (selectedPart !== part.name) {
-          const box = new THREE.Box3().setFromObject(part.object)
-          const center = box.getCenter(new THREE.Vector3())
-          const size = box.getSize(new THREE.Vector3())
-          const maxDim = Math.max(size.x, size.y, size.z)
-          const distance = maxDim * 2.5
-
-          const direction = camera.position.clone().sub(center).normalize()
-          const newPosition = center.clone().add(direction.multiplyScalar(distance))
-
-          const startPosition = camera.position.clone()
-          const startTime = Date.now()
-          const duration = 1000
-
-          const animateCamera = () => {
-            const elapsed = Date.now() - startTime
-            const progress = Math.min(elapsed / duration, 1)
-            const eased = 1 - Math.pow(1 - progress, 3)
-
-            camera.position.lerpVectors(startPosition, newPosition, eased)
-            camera.lookAt(center)
-
-            if (progress < 1) {
-              requestAnimationFrame(animateCamera)
-            }
-          }
-
-          animateCamera()
-        }
       }
 
       pointerDownRef.current = false
@@ -409,7 +379,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
     const fov = camera instanceof THREE.PerspectiveCamera ? camera.fov : 50
     const cameraDistance = maxDim / (2 * Math.tan((fov * Math.PI) / 360))
 
-    const distance = cameraDistance * 1.8
+    const distance = cameraDistance * 1.3
     camera.position.set(distance, distance * 0.7, distance)
     camera.lookAt(center)
 
@@ -548,11 +518,11 @@ export function BreakGLB({
   modelUrl,
   backgroundColor = "#000000",
   ambientLightIntensity = 0.3,
-  directionalLightIntensity = 1.2,
+  directionalLightIntensity = 2.5,
   shadowsEnabled = true,
   cameraFov = 50,
   cameraPosition = [5, 5, 5],
-  explosionDistance = 1.5,
+  explosionDistance = 0.8,
   explosionSpeed = 800,
   animationEasing = "easeInOut",
   showUploadUI = true,
@@ -577,7 +547,20 @@ export function BreakGLB({
   const [isExploded, setIsExploded] = useState(autoExplode)
   const [selectedPart, setSelectedPart] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [darkMode, setDarkMode] = useState(false)
   const [lightPosition, setLightPosition] = useState(new THREE.Vector3(10, 10, 5))
+  const [internalLightIntensity, setInternalLightIntensity] = useState(directionalLightIntensity)
+  const [internalExplosionDistance, setInternalExplosionDistance] = useState(explosionDistance)
+  const [internalEnablePartSelection, setInternalEnablePartSelection] = useState(enablePartSelection)
+  const [internalEnableLightControl, setInternalEnableLightControl] = useState(enableLightControl)
+  const [internalShadowsEnabled, setInternalShadowsEnabled] = useState(shadowsEnabled)
+  const [internalCameraFov, setInternalCameraFov] = useState(cameraFov)
+  const [internalEnableRotate, setInternalEnableRotate] = useState(enableRotate)
+  const [internalEnableZoom, setInternalEnableZoom] = useState(enableZoom)
+  const [internalEnablePan, setInternalEnablePan] = useState(enablePan)
+  const [autoRotate, setAutoRotate] = useState(false)
+  const [internalBackgroundColor, setInternalBackgroundColor] = useState(backgroundColor)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
@@ -593,7 +576,7 @@ export function BreakGLB({
 
   // Light control handlers
   useEffect(() => {
-    if (!enableLightControl) return
+    if (!internalEnableLightControl) return
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 3) {
@@ -686,7 +669,7 @@ export function BreakGLB({
       window.removeEventListener("mouseup", handleMouseUp, true)
       window.removeEventListener("contextmenu", handleContextMenu)
     }
-  }, [enableLightControl])
+  }, [internalEnableLightControl])
 
   const handleFileUpload = useCallback(
     (file: File) => {
@@ -759,14 +742,14 @@ export function BreakGLB({
   return (
     <div
       className={className || "h-screen w-screen"}
-      style={{ ...containerStyle, backgroundColor, position: "relative", overflow: "hidden" }}
+      style={{ ...containerStyle, backgroundColor: darkMode ? "#f5f5f5" : internalBackgroundColor, position: "relative", overflow: "hidden" }}
       onDragOver={showUploadUI ? handleDragOver : undefined}
       onDragLeave={showUploadUI ? handleDragLeave : undefined}
       onDrop={showUploadUI ? handleDrop : undefined}
     >
       {showUploadUI && isDragging && (
-        <div className="absolute inset-0 bg-white/10 border-2 border-dashed border-white z-50 flex items-center justify-center">
-          <div className="text-2xl font-bold text-white">Drop GLB file to load</div>
+        <div className={`absolute inset-0 bg-white/10 border-2 border-dashed z-50 flex items-center justify-center ${darkMode ? "border-black" : "border-white"}`}>
+          <div className={`text-2xl font-bold ${darkMode ? "text-black" : "text-white"}`}>Drop GLB file to load</div>
         </div>
       )}
 
@@ -775,11 +758,11 @@ export function BreakGLB({
       {!internalModelUrl && showUploadUI ? (
         <div className="flex items-center justify-center h-full w-full">
           <div
-            className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors"
+            className={`w-full h-full flex items-center justify-center cursor-pointer transition-colors ${darkMode ? "hover:bg-black/5" : "hover:bg-white/5"}`}
             onClick={() => fileInputRef.current?.click()}
           >
             <div className="text-center">
-              <svg className="w-20 h-20 mx-auto mb-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-20 h-20 mx-auto mb-4 ${darkMode ? "text-black/50" : "text-white/50"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -787,25 +770,26 @@ export function BreakGLB({
                   d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                 />
               </svg>
-              <p className="text-xl text-white/70 mb-2">Upload a 3D Model</p>
-              <p className="text-sm text-white/50">GLB format supported</p>
+              <p className={`text-xl mb-2 ${darkMode ? "text-black/70" : "text-white/70"}`}>Upload a 3D Model</p>
+              <p className={`text-sm ${darkMode ? "text-black/50" : "text-white/50"}`}>GLB format supported</p>
             </div>
           </div>
         </div>
       ) : internalModelUrl ? (
         <div className="h-full w-full relative">
-          <Canvas camera={{ position: cameraPosition, fov: cameraFov }} gl={{ antialias: true, alpha: false }} shadows={shadowsEnabled}>
-            <Environment preset="studio" />
-            <ambientLight intensity={ambientLightIntensity} />
+          <Canvas camera={{ position: cameraPosition, fov: internalCameraFov }} gl={{ antialias: true, alpha: false }} shadows={internalShadowsEnabled}>
             <directionalLight
               position={[lightPosition.x, lightPosition.y, lightPosition.z]}
-              intensity={directionalLightIntensity}
-              castShadow={shadowsEnabled}
+              intensity={internalLightIntensity}
+              castShadow={internalShadowsEnabled}
               shadow-mapSize-width={2048}
               shadow-mapSize-height={2048}
             />
-            <directionalLight position={[-10, -10, -5]} intensity={0.4} />
-            <spotLight position={[0, 10, 0]} intensity={0.5} angle={0.6} penumbra={1} castShadow={shadowsEnabled} />
+            <directionalLight
+              position={[-lightPosition.x, lightPosition.y, -lightPosition.z]}
+              intensity={internalLightIntensity * 0.5}
+              castShadow={false}
+            />
 
             <Suspense fallback={<LoadingFallback />}>
               <Model
@@ -815,17 +799,24 @@ export function BreakGLB({
                 onPartSelect={handlePartSelectInternal}
                 onExplodeComplete={onExplode}
                 lightPosition={lightPosition}
-                explosionDistance={explosionDistance}
-                enablePartSelection={enablePartSelection}
+                explosionDistance={internalExplosionDistance}
+                enablePartSelection={internalEnablePartSelection}
               />
             </Suspense>
 
             <OrbitControls
-              enablePan={enablePan}
-              enableZoom={enableZoom}
-              enableRotate={enableRotate}
+              enablePan={internalEnablePan}
+              enableZoom={internalEnableZoom}
+              enableRotate={internalEnableRotate}
+              autoRotate={autoRotate}
+              autoRotateSpeed={2}
               minDistance={minDistance}
               maxDistance={maxDistance}
+              mouseButtons={{
+                LEFT: THREE.MOUSE.ROTATE,
+                MIDDLE: THREE.MOUSE.DOLLY,
+                RIGHT: undefined,
+              }}
             />
           </Canvas>
 
@@ -868,8 +859,194 @@ export function BreakGLB({
                       />
                     </svg>
                   </button>
+                  <div className="w-px h-6 bg-white/20" />
+                  <button
+                    onClick={() => setDarkMode(!darkMode)}
+                    className={`p-2 rounded-full text-white transition-colors ${
+                      darkMode ? "bg-white/20" : "hover:bg-white/20"
+                    }`}
+                    title={darkMode ? "Dark mode" : "Light mode"}
+                  >
+                    {darkMode ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                        />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <div className="w-px h-6 bg-white/20" />
+                  <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    className={`p-2 rounded-full text-white transition-colors ${
+                      showSettings ? "bg-white/20" : "hover:bg-white/20"
+                    }`}
+                    title="Settings"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                  </button>
                 </div>
               </div>
+
+              {showSettings && (
+                <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-20 bg-black/90 backdrop-blur-md border border-white/20 rounded-lg p-3 w-72 max-h-[70vh] overflow-y-auto">
+                  <div className="space-y-2.5">
+                    {/* Lighting */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-white text-[10px] font-medium">Light</span>
+                      <span className="text-white/50 text-[10px]">{internalLightIntensity.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                      value={internalLightIntensity}
+                      onChange={(e) => setInternalLightIntensity(parseFloat(e.target.value))}
+                      className="w-full h-1"
+                    />
+
+                    {/* Explosion Distance */}
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-white text-[10px] font-medium">Explosion</span>
+                      <span className="text-white/50 text-[10px]">{internalExplosionDistance.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.2"
+                      max="3"
+                      step="0.1"
+                      value={internalExplosionDistance}
+                      onChange={(e) => setInternalExplosionDistance(parseFloat(e.target.value))}
+                      className="w-full h-1"
+                    />
+
+                    {/* Camera FOV */}
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-white text-[10px] font-medium">FOV</span>
+                      <span className="text-white/50 text-[10px]">{internalCameraFov.toFixed(0)}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="30"
+                      max="120"
+                      step="1"
+                      value={internalCameraFov}
+                      onChange={(e) => setInternalCameraFov(parseFloat(e.target.value))}
+                      className="w-full h-1"
+                    />
+
+                    {/* Background Color */}
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-white text-[10px] font-medium">BG Color</span>
+                      <input
+                        type="color"
+                        value={internalBackgroundColor}
+                        onChange={(e) => setInternalBackgroundColor(e.target.value)}
+                        className="w-8 h-5 rounded border border-white/20 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Toggles */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 pt-2 border-t border-white/10">
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={internalEnablePartSelection}
+                          onChange={(e) => setInternalEnablePartSelection(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Part Select
+                      </label>
+
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={internalEnableLightControl}
+                          onChange={(e) => setInternalEnableLightControl(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Light Ctrl
+                      </label>
+
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={internalShadowsEnabled}
+                          onChange={(e) => setInternalShadowsEnabled(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Shadows
+                      </label>
+
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={autoRotate}
+                          onChange={(e) => setAutoRotate(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Auto Rotate
+                      </label>
+
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={internalEnableRotate}
+                          onChange={(e) => setInternalEnableRotate(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Rotate
+                      </label>
+
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={internalEnableZoom}
+                          onChange={(e) => setInternalEnableZoom(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Zoom
+                      </label>
+
+                      <label className="flex items-center gap-1.5 text-white text-[10px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={internalEnablePan}
+                          onChange={(e) => setInternalEnablePan(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        Pan
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
