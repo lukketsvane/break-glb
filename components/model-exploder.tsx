@@ -73,7 +73,8 @@ export default function ModelExploder() {
         modelRef.current.rotation.y = controlsRef.current.rotation.y
       }
 
-      camera.position.z = controlsRef.current.zoom
+      // Smooth camera zoom transition
+      camera.position.z += (controlsRef.current.zoom - camera.position.z) * 0.1
       renderer.render(scene, camera)
     }
     animate()

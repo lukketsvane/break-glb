@@ -56,6 +56,8 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
   const pointerDownTimeRef = useRef(0)
   const previousDragPositionRef = useRef<THREE.Vector3>(new THREE.Vector3())
   const grabPointRef = useRef<THREE.Vector3>(new THREE.Vector3())
+  const hasMovedRef = useRef(false)
+  const initialPositionRef = useRef<THREE.Vector3>(new THREE.Vector3())
 
   useEffect(() => {
     if (!scene) return
@@ -185,6 +187,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
     const handlePointerDown = (event: PointerEvent) => {
       pointerDownRef.current = true
       pointerDownTimeRef.current = Date.now()
+      hasMovedRef.current = false
 
       const rect = canvas.getBoundingClientRect()
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
@@ -205,6 +208,10 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
         })
 
         if (part) {
+          // Prevent OrbitControls from receiving this event
+          event.stopPropagation()
+          event.preventDefault()
+
           if (controls) {
             ;(controls as any).enabled = false
           }
@@ -219,6 +226,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
           grabPointRef.current.copy(intersects[0].point).sub(part.object.position)
           part.grabOffset.copy(grabPointRef.current)
           previousDragPositionRef.current.copy(intersection)
+          initialPositionRef.current.copy(part.object.position)
 
           draggedPartRef.current = part
           part.isDragging = true
@@ -228,6 +236,10 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
 
     const handlePointerMove = (event: PointerEvent) => {
       if (!pointerDownRef.current || !draggedPartRef.current) return
+
+      // Prevent camera controls from activating during drag
+      event.stopPropagation()
+      event.preventDefault()
 
       const holdTime = Date.now() - pointerDownTimeRef.current
       if (holdTime < 150) return
@@ -240,6 +252,11 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       const intersection = new THREE.Vector3()
       if (raycaster.ray.intersectPlane(dragPlaneRef.current, intersection)) {
         const newPosition = intersection.add(dragOffsetRef.current)
+
+        // Check if object has moved significantly
+        if (newPosition.distanceTo(initialPositionRef.current) > 0.01) {
+          hasMovedRef.current = true
+        }
 
         const dragDelta = intersection.clone().sub(previousDragPositionRef.current)
         const torqueArm = draggedPartRef.current.grabOffset
@@ -257,10 +274,17 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       }
     }
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (event: PointerEvent) => {
       const holdTime = Date.now() - pointerDownTimeRef.current
 
-      if (holdTime < 150 && draggedPartRef.current) {
+      // If we were interacting with a part, prevent OrbitControls from receiving this event
+      if (draggedPartRef.current) {
+        event.stopPropagation()
+        event.preventDefault()
+      }
+
+      // Only trigger camera animation if it was a quick click AND the object didn't move
+      if (holdTime < 150 && draggedPartRef.current && !hasMovedRef.current) {
         const part = draggedPartRef.current
         onPartSelect(selectedPart === part.name ? null : part.name)
 
@@ -296,6 +320,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       }
 
       pointerDownRef.current = false
+      hasMovedRef.current = false
       if (draggedPartRef.current) {
         draggedPartRef.current.isDragging = false
         draggedPartRef.current = null
@@ -306,16 +331,17 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       }
     }
 
-    canvas.addEventListener("pointerdown", handlePointerDown)
-    canvas.addEventListener("pointermove", handlePointerMove)
-    canvas.addEventListener("pointerup", handlePointerUp)
-    canvas.addEventListener("pointercancel", handlePointerUp)
+    // Use capture phase to intercept events before OrbitControls
+    canvas.addEventListener("pointerdown", handlePointerDown, true)
+    canvas.addEventListener("pointermove", handlePointerMove, true)
+    canvas.addEventListener("pointerup", handlePointerUp, true)
+    canvas.addEventListener("pointercancel", handlePointerUp, true)
 
     return () => {
-      canvas.removeEventListener("pointerdown", handlePointerDown)
-      canvas.removeEventListener("pointermove", handlePointerMove)
-      canvas.removeEventListener("pointerup", handlePointerUp)
-      canvas.removeEventListener("pointercancel", handlePointerUp)
+      canvas.removeEventListener("pointerdown", handlePointerDown, true)
+      canvas.removeEventListener("pointermove", handlePointerMove, true)
+      canvas.removeEventListener("pointerup", handlePointerUp, true)
+      canvas.removeEventListener("pointercancel", handlePointerUp, true)
     }
   }, [parts, camera, scene, gl, raycaster, pointer, controls, selectedPart, onPartSelect])
 
