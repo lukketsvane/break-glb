@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npm run dev:*)",
       "Bash(npm install:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd settings panel, darkmode, manual inputs, compact docs\n\n- Added settings panel with live controls (light, explosion, FOV, bg color, toggles)\n- Added darkmode toggle in toolbar with background color sync\n- Added manual input for slider values (click numbers to type)\n- Removed camera changes when toggling exploded/assembled\n- Updated README, EXAMPLES, IMPLEMENTATION_SUMMARY to be compact\n- Added second light source, auto-rotate functionality\n- Fixed right-click for light control only\n- Fixed background color selector\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

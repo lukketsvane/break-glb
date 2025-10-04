@@ -360,17 +360,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
     if (!scene || parts.length === 0) return
 
     const box = new THREE.Box3()
-
-    if (isExploded) {
-      parts.forEach((part) => {
-        const partBox = new THREE.Box3().setFromObject(part.object)
-        const explodedBox = partBox.clone()
-        explodedBox.translate(part.explodedPosition.clone().sub(part.originalPosition))
-        box.union(explodedBox)
-      })
-    } else {
-      box.setFromObject(scene)
-    }
+    box.setFromObject(scene)
 
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
@@ -389,7 +379,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
     }
 
     camera.updateProjectionMatrix()
-  }, [scene, camera, controls, parts, isExploded])
+  }, [scene, camera, controls, parts])
 
   useFrame((state, delta) => {
     if (!groupRef.current || parts.length === 0) return
@@ -561,6 +551,9 @@ export function BreakGLB({
   const [internalEnablePan, setInternalEnablePan] = useState(enablePan)
   const [autoRotate, setAutoRotate] = useState(false)
   const [internalBackgroundColor, setInternalBackgroundColor] = useState(backgroundColor)
+  const [editingLight, setEditingLight] = useState(false)
+  const [editingExplosion, setEditingExplosion] = useState(false)
+  const [editingFov, setEditingFov] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
@@ -573,6 +566,11 @@ export function BreakGLB({
       setInternalModelUrl(modelUrl)
     }
   }, [modelUrl])
+
+  // Update background color when dark mode toggles
+  useEffect(() => {
+    setInternalBackgroundColor(darkMode ? "#ffffff" : backgroundColor)
+  }, [darkMode, backgroundColor])
 
   // Light control handlers
   useEffect(() => {
@@ -742,7 +740,7 @@ export function BreakGLB({
   return (
     <div
       className={className || "h-screen w-screen"}
-      style={{ ...containerStyle, backgroundColor: darkMode ? "#f5f5f5" : internalBackgroundColor, position: "relative", overflow: "hidden" }}
+      style={{ ...containerStyle, backgroundColor: internalBackgroundColor, position: "relative", overflow: "hidden" }}
       onDragOver={showUploadUI ? handleDragOver : undefined}
       onDragLeave={showUploadUI ? handleDragLeave : undefined}
       onDrop={showUploadUI ? handleDrop : undefined}
@@ -919,7 +917,27 @@ export function BreakGLB({
                     {/* Lighting */}
                     <div className="flex items-center justify-between">
                       <span className="text-white text-[10px] font-medium">Light</span>
-                      <span className="text-white/50 text-[10px]">{internalLightIntensity.toFixed(1)}</span>
+                      {editingLight ? (
+                        <input
+                          type="number"
+                          min="0"
+                          max="5"
+                          step="0.1"
+                          value={internalLightIntensity}
+                          onChange={(e) => setInternalLightIntensity(parseFloat(e.target.value) || 0)}
+                          onBlur={() => setEditingLight(false)}
+                          onKeyDown={(e) => e.key === 'Enter' && setEditingLight(false)}
+                          autoFocus
+                          className="text-white/50 text-[10px] bg-transparent border-b border-white/30 w-12 text-right outline-none"
+                        />
+                      ) : (
+                        <span
+                          className="text-white/50 text-[10px] cursor-pointer hover:text-white"
+                          onClick={() => setEditingLight(true)}
+                        >
+                          {internalLightIntensity.toFixed(1)}
+                        </span>
+                      )}
                     </div>
                     <input
                       type="range"
@@ -934,7 +952,27 @@ export function BreakGLB({
                     {/* Explosion Distance */}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-white text-[10px] font-medium">Explosion</span>
-                      <span className="text-white/50 text-[10px]">{internalExplosionDistance.toFixed(1)}</span>
+                      {editingExplosion ? (
+                        <input
+                          type="number"
+                          min="0.2"
+                          max="3"
+                          step="0.1"
+                          value={internalExplosionDistance}
+                          onChange={(e) => setInternalExplosionDistance(parseFloat(e.target.value) || 0.2)}
+                          onBlur={() => setEditingExplosion(false)}
+                          onKeyDown={(e) => e.key === 'Enter' && setEditingExplosion(false)}
+                          autoFocus
+                          className="text-white/50 text-[10px] bg-transparent border-b border-white/30 w-12 text-right outline-none"
+                        />
+                      ) : (
+                        <span
+                          className="text-white/50 text-[10px] cursor-pointer hover:text-white"
+                          onClick={() => setEditingExplosion(true)}
+                        >
+                          {internalExplosionDistance.toFixed(1)}
+                        </span>
+                      )}
                     </div>
                     <input
                       type="range"
@@ -949,7 +987,27 @@ export function BreakGLB({
                     {/* Camera FOV */}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-white text-[10px] font-medium">FOV</span>
-                      <span className="text-white/50 text-[10px]">{internalCameraFov.toFixed(0)}°</span>
+                      {editingFov ? (
+                        <input
+                          type="number"
+                          min="30"
+                          max="120"
+                          step="1"
+                          value={internalCameraFov}
+                          onChange={(e) => setInternalCameraFov(parseFloat(e.target.value) || 30)}
+                          onBlur={() => setEditingFov(false)}
+                          onKeyDown={(e) => e.key === 'Enter' && setEditingFov(false)}
+                          autoFocus
+                          className="text-white/50 text-[10px] bg-transparent border-b border-white/30 w-12 text-right outline-none"
+                        />
+                      ) : (
+                        <span
+                          className="text-white/50 text-[10px] cursor-pointer hover:text-white"
+                          onClick={() => setEditingFov(true)}
+                        >
+                          {internalCameraFov.toFixed(0)}°
+                        </span>
+                      )}
                     </div>
                     <input
                       type="range"
