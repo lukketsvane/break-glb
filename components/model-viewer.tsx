@@ -509,6 +509,8 @@ export function ModelViewer({ modelUrl, isExploded, selectedPart, onPartSelect, 
   const lightRef = useRef<THREE.DirectionalLight>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
+  const isRightDraggingRef = useRef(false)
+  const rightDragStartRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
@@ -545,14 +547,63 @@ export function ModelViewer({ modelUrl, isExploded, selectedPart, onPartSelect, 
       }
     }
 
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) {
+        // Right click
+        isRightDraggingRef.current = true
+        rightDragStartRef.current = { x: e.clientX, y: e.clientY }
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isRightDraggingRef.current && rightDragStartRef.current) {
+        const deltaX = (e.clientX - rightDragStartRef.current.x) * 0.05
+        const deltaY = (e.clientY - rightDragStartRef.current.y) * 0.05
+
+        setLightPosition((prev) => {
+          const newPos = prev.clone()
+          newPos.x += deltaX
+          newPos.y -= deltaY
+          return newPos
+        })
+
+        rightDragStartRef.current = { x: e.clientX, y: e.clientY }
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 2 && isRightDraggingRef.current) {
+        isRightDraggingRef.current = false
+        rightDragStartRef.current = null
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+    }
+
     window.addEventListener("touchstart", handleTouchStart, { passive: false })
     window.addEventListener("touchmove", handleTouchMove, { passive: false })
     window.addEventListener("touchend", handleTouchEnd)
+    window.addEventListener("mousedown", handleMouseDown, true)
+    window.addEventListener("mousemove", handleMouseMove, true)
+    window.addEventListener("mouseup", handleMouseUp, true)
+    window.addEventListener("contextmenu", handleContextMenu)
 
     return () => {
       window.removeEventListener("touchstart", handleTouchStart)
       window.removeEventListener("touchmove", handleTouchMove)
       window.removeEventListener("touchend", handleTouchEnd)
+      window.removeEventListener("mousedown", handleMouseDown, true)
+      window.removeEventListener("mousemove", handleMouseMove, true)
+      window.removeEventListener("mouseup", handleMouseUp, true)
+      window.removeEventListener("contextmenu", handleContextMenu)
     }
   }, [])
 
