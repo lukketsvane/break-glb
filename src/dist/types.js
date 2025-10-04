@@ -1,0 +1,2 @@
+'use strict';var e={gentle:{distance:1,speed:1200,easing:"easeOut",staggerDelay:20},normal:{distance:1.5,speed:800,easing:"easeInOut",staggerDelay:15},energetic:{distance:2.5,speed:600,easing:"easeOut",staggerDelay:10},dramatic:{distance:3.5,speed:1500,easing:"bounce",staggerDelay:30},custom:{}};exports.ANIMATION_PRESETS=e;//# sourceMappingURL=types.js.map
+//# sourceMappingURL=types.js.map

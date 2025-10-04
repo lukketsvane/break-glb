@@ -18,6 +18,6 @@
     "isolatedModules": true,
     "noEmit": false
   },
-  "include": ["index.tsx"],
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }
