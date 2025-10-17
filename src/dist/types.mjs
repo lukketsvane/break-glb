@@ -1,2 +1,0 @@
-var e={gentle:{distance:1,speed:1200,easing:"easeOut",staggerDelay:20},normal:{distance:1.5,speed:800,easing:"easeInOut",staggerDelay:15},energetic:{distance:2.5,speed:600,easing:"easeOut",staggerDelay:10},dramatic:{distance:3.5,speed:1500,easing:"bounce",staggerDelay:30},custom:{}};export{e as ANIMATION_PRESETS};//# sourceMappingURL=types.mjs.map
-//# sourceMappingURL=types.mjs.map
