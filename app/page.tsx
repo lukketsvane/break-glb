@@ -1,172 +1,151 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Upload, Zap } from "lucide-react"
+import { Zap, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ModelViewer } from "@/components/model-viewer"
+import { useGLTF } from "@react-three/drei"
+
+const CHAIR_MODELS = [
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/0dea0e59-f817-4bb8-aaef-d8c4b9797bf5-1760736947725.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/6e729cd0-c916-45e3-a883-21c2eff80f07-1760730635582.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/2d562fd7-1b1e-47d1-bf7b-6677df43a85a-1760731239060.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/3379d98b-b8dd-4df6-b6a1-f09942476b8a-1760736470035.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/2821c681-5f78-8135-b56d-e68ce40a5132-1760737361275.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/2821c681-5f78-8175-b43c-c8ba2d47198e-1760737208918.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/1f607997-8018-4aee-9b0c-4d8e0b481037-1760730750047.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/23b125dc-07df-423e-8407-fed2430ba4cc-1760736644040.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/5d158b49-2e51-4595-8fdc-4855bb99b5ca-1760737138838.glb",
+]
 
 export default function Home() {
-  const [modelUrl, setModelUrl] = useState<string | null>(null)
+  const [currentChairIndex, setCurrentChairIndex] = useState(0)
   const [isExploded, setIsExploded] = useState(false)
   const [selectedPart, setSelectedPart] = useState<string | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
   const [showInfo, setShowInfo] = useState(true)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const explosionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const modelUrl = CHAIR_MODELS[currentChairIndex]
 
   useEffect(() => {
-    if (modelUrl && showInfo) {
+    CHAIR_MODELS.forEach((url) => {
+      useGLTF.preload(url)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (explosionTimeoutRef.current) {
+      clearTimeout(explosionTimeoutRef.current)
+    }
+
+    explosionTimeoutRef.current = setTimeout(() => {
+      setIsExploded(true)
+      setShowInfo(true)
+    }, 2000)
+
+    return () => {
+      if (explosionTimeoutRef.current) {
+        clearTimeout(explosionTimeoutRef.current)
+      }
+    }
+  }, [currentChairIndex])
+
+  useEffect(() => {
+    if (showInfo) {
       if (infoTimeoutRef.current) {
         clearTimeout(infoTimeoutRef.current)
       }
       infoTimeoutRef.current = setTimeout(() => {
         setShowInfo(false)
-      }, 5000)
+      }, 4000)
     }
     return () => {
       if (infoTimeoutRef.current) {
         clearTimeout(infoTimeoutRef.current)
       }
     }
-  }, [modelUrl, showInfo, isExploded])
+  }, [showInfo, isExploded, currentChairIndex])
 
-  const handleFileUpload = useCallback(
-    (file: File) => {
-      if (file && file.name.toLowerCase().endsWith(".glb")) {
-        if (modelUrl) {
-          URL.revokeObjectURL(modelUrl)
-        }
-        const url = URL.createObjectURL(file)
-        setModelUrl(url)
-        setIsExploded(false)
-        setSelectedPart(null)
-        setShowInfo(true)
-      }
-    },
-    [modelUrl],
-  )
-
-  const handleInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (file) {
-        handleFileUpload(file)
-      }
-    },
-    [handleFileUpload],
-  )
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
+  const handlePreviousChair = useCallback(() => {
+    setCurrentChairIndex((prev) => (prev === 0 ? CHAIR_MODELS.length - 1 : prev - 1))
+    setIsExploded(false)
+    setSelectedPart(null)
+    setShowInfo(true)
   }, [])
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
+  const handleNextChair = useCallback(() => {
+    setCurrentChairIndex((prev) => (prev === CHAIR_MODELS.length - 1 ? 0 : prev + 1))
+    setIsExploded(false)
+    setSelectedPart(null)
+    setShowInfo(true)
   }, [])
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragging(false)
-
-      const files = Array.from(e.dataTransfer.files)
-      const glbFile = files.find((file) => file.name.toLowerCase().endsWith(".glb"))
-
-      if (glbFile) {
-        handleFileUpload(glbFile)
-      }
-    },
-    [handleFileUpload],
-  )
-
-  const handleFrameClick = useCallback(() => {
-    if (!modelUrl) {
-      fileInputRef.current?.click()
-    }
-  }, [modelUrl])
 
   return (
-    <div
-      className="h-screen w-screen bg-black relative overflow-hidden"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      {isDragging && (
-        <div className="absolute inset-0 bg-white/10 border-2 border-dashed border-white z-50 flex items-center justify-center">
-          <div className="text-2xl font-bold text-white">Drop GLB file to load</div>
+    <div className="h-screen w-screen bg-black relative overflow-hidden">
+      <div className="h-full w-full relative bg-black">
+        <ModelViewer
+          modelUrl={modelUrl}
+          isExploded={isExploded}
+          selectedPart={selectedPart}
+          onPartSelect={setSelectedPart}
+        />
+
+        <div
+          className={`absolute top-6 right-6 transition-opacity duration-500 ${showInfo ? "opacity-30" : "opacity-0"}`}
+        >
+          <div className="w-2 h-2 rounded-full bg-white" />
         </div>
-      )}
 
-      <input ref={fileInputRef} type="file" accept=".glb" onChange={handleInputChange} className="hidden" />
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+          <div className="flex items-center gap-3 bg-black/80 backdrop-blur-xl border border-white/10 rounded-full px-3 py-3 shadow-2xl">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handlePreviousChair}
+              className="rounded-full w-10 h-10 text-white hover:bg-white/10 transition-all active:scale-95"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
 
-      {!modelUrl ? (
-        <div className="flex items-center justify-center h-full w-full bg-black">
-          <div
-            className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors"
-            onClick={handleFrameClick}
-          >
-            <div className="text-center">
-              <Upload className="w-20 h-20 mx-auto mb-4 text-white/50" />
-              <p className="text-xl text-white/70 mb-2">Upload a 3D Model</p>
-              <p className="text-sm text-white/50">GLB format supported</p>
+            <div className="flex items-center gap-1 px-2">
+              {CHAIR_MODELS.map((_, index) => (
+                <div
+                  key={index}
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${
+                    index === currentChairIndex ? "bg-white w-4" : "bg-white/30"
+                  }`}
+                />
+              ))}
             </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNextChair}
+              className="rounded-full w-10 h-10 text-white hover:bg-white/10 transition-all active:scale-95"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </Button>
+
+            <div className="w-px h-8 bg-white/10" />
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setIsExploded(!isExploded)
+                setShowInfo(true)
+              }}
+              className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
+                isExploded ? "bg-white/20 text-white" : "text-white hover:bg-white/10"
+              }`}
+            >
+              <Zap className="w-5 h-5" />
+            </Button>
           </div>
         </div>
-      ) : (
-        <div className="h-full w-full relative bg-black">
-          <ModelViewer
-            modelUrl={modelUrl}
-            isExploded={isExploded}
-            selectedPart={selectedPart}
-            onPartSelect={setSelectedPart}
-          />
-
-          <div
-            className={`absolute top-6 left-6 transition-opacity duration-1000 ${showInfo ? "opacity-100" : "opacity-0"}`}
-            onMouseEnter={() => setShowInfo(true)}
-          >
-            <p className="text-sm text-white/70">
-              {isExploded
-                ? "Tap to focus • Hold & drag to move • 3 fingers to adjust light"
-                : "Drag to rotate • Scroll to zoom • 3 fingers to adjust light"}
-            </p>
-          </div>
-
-          <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2">
-            <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm border border-white/20 rounded-full px-4 py-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-full text-white hover:bg-white/20"
-                title="Upload new model"
-              >
-                <Upload className="w-4 h-4" />
-              </Button>
-
-              <div className="w-px h-6 bg-white/20" />
-
-              <Button
-                variant={isExploded ? "secondary" : "ghost"}
-                size="icon"
-                onClick={() => {
-                  setIsExploded(!isExploded)
-                  setShowInfo(true)
-                }}
-                className="rounded-full text-white hover:bg-white/20"
-                title={isExploded ? "Assemble" : "Explode"}
-              >
-                <Zap className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
