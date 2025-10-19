@@ -8,15 +8,11 @@ import * as THREE from "three"
 interface ModelViewerProps {
   modelUrl: string
   isExploded: boolean
-  onExplodeComplete?: () => void
 }
 
 interface ModelProps {
   url: string
   isExploded: boolean
-  selectedPart: string
-  onPartSelect: (partName: string) => void
-  onExplodeComplete?: () => void
   lightPosition: THREE.Vector3
 }
 
@@ -26,8 +22,8 @@ interface Part {
   explodedPosition: THREE.Vector3
   currentPosition: THREE.Vector3
   velocity: THREE.Vector3
-  angularVelocity: THREE.Euler // For rotation physics
-  originalRotation: THREE.Euler // Store original rotation
+  angularVelocity: THREE.Euler
+  originalRotation: THREE.Euler
   name: string
   center: THREE.Vector3
   floatOffset: number
@@ -37,32 +33,35 @@ interface Part {
   collisionRadius: number
   isDragging: boolean
   collisionMesh: THREE.Mesh | null
-  grabOffset: THREE.Vector3 // Offset from center where user grabbed
+  grabOffset: THREE.Vector3
 }
 
-function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete, lightPosition }: ModelProps) {
+function Model({ url, isExploded, lightPosition }: ModelProps) {
   const { scene } = useGLTF(url)
   const groupRef = useRef<THREE.Group>(null)
   const [parts, setParts] = useState<Part[]>([])
-  const { camera, controls, gl, raycaster, pointer } = useThree()
+  const { camera, controls, gl } = useThree()
   const hasExplodedRef = useRef(false)
+
+  const animationStartTimeRef = useRef<number>(0)
   const isAnimatingRef = useRef(false)
-  const animationStartTimeRef = useRef(0)
-  const isCameraAnimatingRef = useRef(false)
-  const cameraAnimationStartRef = useRef(0)
-  const startCameraPositionRef = useRef(new THREE.Vector3())
-  const targetCameraPositionRef = useRef(new THREE.Vector3())
-  const startControlsTargetRef = useRef(new THREE.Vector3())
-  const targetControlsTargetRef = useRef(new THREE.Vector3())
+  const previousIsExplodedRef = useRef(isExploded)
 
   const draggedPartRef = useRef<Part | null>(null)
-  const dragPlaneRef = useRef(new THREE.Plane())
-  const dragOffsetRef = useRef(new THREE.Vector3())
+  const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane())
   const pointerDownRef = useRef(false)
-  const pointerDownTimeRef = useRef(0)
-  const previousDragPositionRef = useRef(new THREE.Vector3())
-  const grabPointRef = useRef(new THREE.Vector3())
-  const selectedPartRef = useRef("")
+  const previousDragPositionRef = useRef<THREE.Vector3>(new THREE.Vector3())
+
+  const partsRef = useRef<Part[]>([])
+  const isExplodedRef = useRef(isExploded)
+
+  useEffect(() => {
+    partsRef.current = parts
+  }, [parts])
+
+  useEffect(() => {
+    isExplodedRef.current = isExploded
+  }, [isExploded])
 
   useEffect(() => {
     if (!scene) return
@@ -187,132 +186,6 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
   }, [scene])
 
   useEffect(() => {
-    const canvas = gl.domElement
-
-    const handlePointerDown = (event: PointerEvent) => {
-      pointerDownRef.current = true
-      pointerDownTimeRef.current = Date.now()
-
-      const rect = canvas.getBoundingClientRect()
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-
-      raycaster.setFromCamera(pointer, camera)
-      const intersects = raycaster.intersectObjects(scene.children, true)
-
-      if (intersects.length > 0) {
-        const clickedObject = intersects[0].object
-        const part = parts.find((p) => {
-          let current: THREE.Object3D | null = clickedObject
-          while (current) {
-            if (current === p.object) return true
-            current = current.parent
-          }
-          return false
-        })
-
-        if (part) {
-          if (controls) {
-            ;(controls as any).enabled = false
-          }
-
-          const normal = camera.position.clone().sub(part.object.position).normalize()
-          dragPlaneRef.current.setFromNormalAndCoplanarPoint(normal, part.object.position)
-
-          const intersection = new THREE.Vector3()
-          raycaster.ray.intersectPlane(dragPlaneRef.current, intersection)
-          dragOffsetRef.current.copy(part.object.position).sub(intersection)
-
-          grabPointRef.current.copy(intersects[0].point).sub(part.object.position)
-          part.grabOffset.copy(grabPointRef.current)
-          previousDragPositionRef.current.copy(intersection)
-
-          draggedPartRef.current = part
-          part.isDragging = true
-        }
-      }
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      if (!pointerDownRef.current || !draggedPartRef.current) return
-
-      const holdTime = Date.now() - pointerDownTimeRef.current
-      if (holdTime < 150) return
-
-      const rect = canvas.getBoundingClientRect()
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-
-      raycaster.setFromCamera(pointer, camera)
-      const intersection = new THREE.Vector3()
-      if (raycaster.ray.intersectPlane(dragPlaneRef.current, intersection)) {
-        const newPosition = intersection.add(dragOffsetRef.current)
-
-        const dragDelta = intersection.clone().sub(previousDragPositionRef.current)
-        const torqueArm = draggedPartRef.current.grabOffset
-        const torque = new THREE.Vector3().crossVectors(torqueArm, dragDelta)
-
-        // Apply torque to angular velocity
-        draggedPartRef.current.angularVelocity.x += torque.x * 2
-        draggedPartRef.current.angularVelocity.y += torque.y * 2
-        draggedPartRef.current.angularVelocity.z += torque.z * 2
-
-        previousDragPositionRef.current.copy(intersection)
-
-        draggedPartRef.current.object.position.copy(newPosition)
-        draggedPartRef.current.currentPosition.copy(newPosition)
-      }
-    }
-
-    const handlePointerUp = () => {
-      const holdTime = Date.now() - pointerDownTimeRef.current
-
-      if (holdTime < 150 && draggedPartRef.current) {
-        const part = draggedPartRef.current
-        if (selectedPartRef.current !== part.name) {
-          const box = new THREE.Box3().setFromObject(part.object)
-          const center = box.getCenter(new THREE.Vector3())
-          const size = box.getSize(new THREE.Vector3())
-          const maxDim = Math.max(size.x, size.y, size.z)
-          const distance = maxDim * 2.5
-
-          const direction = camera.position.clone().sub(center).normalize()
-          const newPosition = center.clone().add(direction.multiplyScalar(distance))
-
-          startCameraPositionRef.current.copy(camera.position)
-          targetCameraPositionRef.current.copy(newPosition)
-          cameraAnimationStartRef.current = Date.now()
-          isCameraAnimatingRef.current = true
-        }
-      }
-
-      pointerDownRef.current = false
-      if (draggedPartRef.current) {
-        draggedPartRef.current.isDragging = false
-        draggedPartRef.current = null
-      }
-
-      if (controls) {
-        ;(controls as any).enabled = true
-      }
-    }
-
-    canvas.addEventListener("pointerdown", handlePointerDown)
-    canvas.addEventListener("pointermove", handlePointerMove)
-    canvas.addEventListener("pointerup", handlePointerUp)
-    canvas.addEventListener("pointercancel", handlePointerUp)
-
-    return () => {
-      canvas.removeEventListener("pointerdown", handlePointerDown)
-      canvas.removeEventListener("pointermove", handlePointerMove)
-      canvas.removeEventListener("pointerup", handlePointerUp)
-      canvas.removeEventListener("pointercancel", handlePointerUp)
-    }
-  }, [parts, camera, scene, gl, raycaster, pointer, controls])
-
-  const previousIsExplodedRef = useRef(isExploded)
-
-  useEffect(() => {
     if (previousIsExplodedRef.current !== isExploded) {
       animationStartTimeRef.current = Date.now()
       isAnimatingRef.current = true
@@ -324,17 +197,158 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
     return 1 - Math.pow(1 - t, 4)
   }
 
-  const easeOutCubic = (t: number): number => {
-    return 1 - Math.pow(1 - t, 3)
-  }
+  useEffect(() => {
+    const canvas = gl.domElement
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!isExplodedRef.current || partsRef.current.length === 0) {
+        return
+      }
+
+      const rect = canvas.getBoundingClientRect()
+      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+      const raycaster = new THREE.Raycaster()
+      raycaster.setFromCamera(new THREE.Vector2(x, y), camera)
+
+      const allObjects: THREE.Object3D[] = []
+      partsRef.current.forEach((part) => {
+        part.object.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            allObjects.push(child)
+          }
+        })
+      })
+
+      const intersects = raycaster.intersectObjects(allObjects, false)
+
+      if (intersects.length > 0) {
+        event.stopPropagation()
+        event.preventDefault()
+
+        pointerDownRef.current = true
+
+        const intersectedObject = intersects[0].object
+
+        let hitPart: Part | null = null
+        for (const part of partsRef.current) {
+          let current: THREE.Object3D | null = intersectedObject
+          while (current) {
+            if (current === part.object) {
+              hitPart = part
+              break
+            }
+            current = current.parent
+          }
+          if (hitPart) break
+        }
+
+        if (hitPart) {
+          draggedPartRef.current = hitPart
+          hitPart.isDragging = true
+
+          const intersectionPoint = intersects[0].point
+          hitPart.grabOffset.copy(intersectionPoint).sub(hitPart.object.position)
+
+          const normal = new THREE.Vector3(0, 0, 1)
+          normal.applyQuaternion(camera.quaternion)
+          dragPlaneRef.current.setFromNormalAndCoplanarPoint(normal, intersectionPoint)
+
+          previousDragPositionRef.current.copy(intersectionPoint)
+
+          if (controls) {
+            ;(controls as any).enabled = false
+          }
+        }
+      }
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!draggedPartRef.current || !pointerDownRef.current) return
+
+      event.stopPropagation()
+      event.preventDefault()
+
+      const rect = canvas.getBoundingClientRect()
+      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+      const raycaster = new THREE.Raycaster()
+      raycaster.setFromCamera(new THREE.Vector2(x, y), camera)
+
+      const intersectionPoint = new THREE.Vector3()
+      if (raycaster.ray.intersectPlane(dragPlaneRef.current, intersectionPoint)) {
+        const part = draggedPartRef.current
+
+        const targetPosition = intersectionPoint.clone().sub(part.grabOffset)
+        const delta = targetPosition.clone().sub(part.object.position)
+
+        part.velocity.copy(delta).multiplyScalar(20)
+
+        part.object.position.copy(targetPosition)
+        part.currentPosition.copy(targetPosition)
+
+        const movementDelta = intersectionPoint.clone().sub(previousDragPositionRef.current)
+        if (movementDelta.length() > 0.001) {
+          part.angularVelocity.x += movementDelta.y * 2
+          part.angularVelocity.y += movementDelta.x * 2
+          part.angularVelocity.z += (movementDelta.x + movementDelta.y) * 0.5
+        }
+
+        previousDragPositionRef.current.copy(intersectionPoint)
+      }
+    }
+
+    const handlePointerUp = () => {
+      if (draggedPartRef.current) {
+        draggedPartRef.current.isDragging = false
+        draggedPartRef.current = null
+      }
+
+      pointerDownRef.current = false
+
+      if (controls) {
+        ;(controls as any).enabled = true
+      }
+    }
+
+    canvas.addEventListener("pointerdown", handlePointerDown, { capture: true })
+    canvas.addEventListener("pointermove", handlePointerMove, { capture: true })
+    canvas.addEventListener("pointerup", handlePointerUp, { capture: true })
+    canvas.addEventListener("pointerleave", handlePointerUp, { capture: true })
+
+    return () => {
+      canvas.removeEventListener("pointerdown", handlePointerDown, { capture: true })
+      canvas.removeEventListener("pointermove", handlePointerMove, { capture: true })
+      canvas.removeEventListener("pointerup", handlePointerUp, { capture: true })
+      canvas.removeEventListener("pointerleave", handlePointerUp, { capture: true })
+    }
+  }, [gl.domElement, camera, controls])
 
   useFrame((state, delta) => {
     if (!groupRef.current || parts.length === 0) return
 
-    const animationDuration = 900 // 0.9 seconds for reassembly
-    const animationProgress = 1
+    const animationDuration = 900
+    let animationProgress = 1
 
-    parts.forEach((part, index) => {
+    if (isAnimatingRef.current) {
+      const elapsed = Date.now() - animationStartTimeRef.current
+      animationProgress = Math.min(elapsed / animationDuration, 1)
+
+      if (animationProgress >= 1) {
+        isAnimatingRef.current = false
+        if (isExploded && !hasExplodedRef.current) {
+          hasExplodedRef.current = true
+        } else if (!isExploded) {
+          hasExplodedRef.current = false
+        }
+      }
+    }
+
+    const easedProgress = easeOutQuart(animationProgress)
+
+    parts.forEach((part) => {
       const {
         object,
         originalPosition,
@@ -379,12 +393,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       const targetPosition = isExploded ? explodedPosition : originalPosition
 
       if (isAnimatingRef.current) {
-        const animationProgress = (Date.now() - animationStartTimeRef.current) / animationDuration
-        currentPosition.lerpVectors(
-          isExploded ? originalPosition : explodedPosition,
-          targetPosition,
-          easeOutCubic(animationProgress),
-        )
+        currentPosition.lerpVectors(isExploded ? originalPosition : explodedPosition, targetPosition, easedProgress)
         object.position.copy(currentPosition)
       } else {
         object.position.copy(currentPosition)
@@ -403,13 +412,9 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
         angularVelocity.z *= 0.98
       } else {
         if (isAnimatingRef.current) {
-          const rotationProgress = Math.min(
-            easeOutCubic((Date.now() - animationStartTimeRef.current) / animationDuration) * 1.3,
-            1,
-          )
-          object.rotation.x = THREE.MathUtils.lerp(object.rotation.x, originalRotation.x, rotationProgress)
-          object.rotation.y = THREE.MathUtils.lerp(object.rotation.y, originalRotation.y, rotationProgress)
-          object.rotation.z = THREE.MathUtils.lerp(object.rotation.z, originalRotation.z, rotationProgress)
+          object.rotation.x = THREE.MathUtils.lerp(object.rotation.x, originalRotation.x, easedProgress)
+          object.rotation.y = THREE.MathUtils.lerp(object.rotation.y, originalRotation.y, easedProgress)
+          object.rotation.z = THREE.MathUtils.lerp(object.rotation.z, originalRotation.z, easedProgress)
         }
 
         angularVelocity.x *= 0.7
@@ -417,17 +422,6 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
         angularVelocity.z *= 0.7
       }
     })
-
-    if (isAnimatingRef.current) {
-      const elapsed = Date.now() - animationStartTimeRef.current
-      const duration = animationDuration
-      const progress = Math.min(elapsed / duration, 1)
-      const easedProgress = easeOutCubic(progress)
-
-      if (progress >= 1) {
-        isAnimatingRef.current = false
-      }
-    }
   })
 
   return (
@@ -441,12 +435,11 @@ function LoadingFallback() {
   return null
 }
 
-export function ModelViewer({ modelUrl, isExploded, onExplodeComplete }: ModelViewerProps) {
+export function ModelViewer({ modelUrl, isExploded }: ModelViewerProps) {
   const [lightPosition, setLightPosition] = useState(new THREE.Vector3(10, 10, 5))
   const lightRef = useRef<THREE.DirectionalLight>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
-  const [selectedPart, setSelectedPart] = useState("")
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
@@ -516,14 +509,7 @@ export function ModelViewer({ modelUrl, isExploded, onExplodeComplete }: ModelVi
         <spotLight position={[0, 10, 0]} intensity={0.5} angle={0.6} penumbra={1} castShadow />
 
         <Suspense fallback={<LoadingFallback />}>
-          <Model
-            url={modelUrl}
-            isExploded={isExploded}
-            selectedPart={selectedPart}
-            onPartSelect={setSelectedPart}
-            onExplodeComplete={onExplodeComplete}
-            lightPosition={lightPosition}
-          />
+          <Model url={modelUrl} isExploded={isExploded} lightPosition={lightPosition} />
         </Suspense>
 
         <OrbitControls
