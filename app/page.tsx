@@ -7,21 +7,16 @@ import { ModelViewer } from "@/components/model-viewer"
 import { useGLTF } from "@react-three/drei"
 
 const CHAIR_MODELS = [
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/0dea0e59-f817-4bb8-aaef-d8c4b9797bf5-1760736947725.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/6e729cd0-c916-45e3-a883-21c2eff80f07-1760730635582.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/2d562fd7-1b1e-47d1-bf7b-6677df43a85a-1760731239060.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/3379d98b-b8dd-4df6-b6a1-f09942476b8a-1760736470035.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/2821c681-5f78-8135-b56d-e68ce40a5132-1760737361275.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/2821c681-5f78-8175-b43c-c8ba2d47198e-1760737208918.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/1f607997-8018-4aee-9b0c-4d8e0b481037-1760730750047.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/23b125dc-07df-423e-8407-fed2430ba4cc-1760736644040.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/5d158b49-2e51-4595-8fdc-4855bb99b5ca-1760737138838.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/6464645f-1179-46a4-90b6-94897afb1f91-1760737085523.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/69115c45-d12a-4d4c-af31-52760c6e9e2e-1760730869598.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/7d2f0026-90d2-49a6-9fcd-61a702e5b2a7-1760736571409.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/83c7c65e-c1a8-4ac8-bc05-b5b309537958-1760736255048.glb",
+  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/d3a4f7e5-d9a8-4367-ba3f-e7f36d5e4181-1760730545612.glb",
 ]
 
 export default function Home() {
   const [currentChairIndex, setCurrentChairIndex] = useState(0)
   const [isExploded, setIsExploded] = useState(false)
-  const [selectedPart, setSelectedPart] = useState<string | null>(null)
   const [showInfo, setShowInfo] = useState(true)
   const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const explosionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -70,26 +65,19 @@ export default function Home() {
   const handlePreviousChair = useCallback(() => {
     setCurrentChairIndex((prev) => (prev === 0 ? CHAIR_MODELS.length - 1 : prev - 1))
     setIsExploded(false)
-    setSelectedPart(null)
     setShowInfo(true)
   }, [])
 
   const handleNextChair = useCallback(() => {
     setCurrentChairIndex((prev) => (prev === CHAIR_MODELS.length - 1 ? 0 : prev + 1))
     setIsExploded(false)
-    setSelectedPart(null)
     setShowInfo(true)
   }, [])
 
   return (
-    <div className="h-screen w-screen bg-black relative overflow-hidden">
+    <div className="h-dvh w-screen bg-black relative overflow-hidden">
       <div className="h-full w-full relative bg-black">
-        <ModelViewer
-          modelUrl={modelUrl}
-          isExploded={isExploded}
-          selectedPart={selectedPart}
-          onPartSelect={setSelectedPart}
-        />
+        <ModelViewer modelUrl={modelUrl} isExploded={isExploded} />
 
         <div
           className={`absolute top-6 right-6 transition-opacity duration-500 ${showInfo ? "opacity-30" : "opacity-0"}`}
@@ -97,7 +85,7 @@ export default function Home() {
           <div className="w-2 h-2 rounded-full bg-white" />
         </div>
 
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+        <div className="absolute bottom-0 left-0 right-0 pb-[max(2rem,env(safe-area-inset-bottom))] flex justify-center">
           <div className="flex items-center gap-3 bg-black/80 backdrop-blur-xl border border-white/10 rounded-full px-3 py-3 shadow-2xl">
             <Button
               variant="ghost"

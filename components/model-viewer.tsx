@@ -8,16 +8,14 @@ import * as THREE from "three"
 interface ModelViewerProps {
   modelUrl: string
   isExploded: boolean
-  selectedPart: string | null
-  onPartSelect: (partName: string | null) => void
   onExplodeComplete?: () => void
 }
 
 interface ModelProps {
   url: string
   isExploded: boolean
-  selectedPart: string | null
-  onPartSelect: (partName: string | null) => void
+  selectedPart: string
+  onPartSelect: (partName: string) => void
   onExplodeComplete?: () => void
   lightPosition: THREE.Vector3
 }
@@ -48,14 +46,23 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
   const [parts, setParts] = useState<Part[]>([])
   const { camera, controls, gl, raycaster, pointer } = useThree()
   const hasExplodedRef = useRef(false)
+  const isAnimatingRef = useRef(false)
+  const animationStartTimeRef = useRef(0)
+  const isCameraAnimatingRef = useRef(false)
+  const cameraAnimationStartRef = useRef(0)
+  const startCameraPositionRef = useRef(new THREE.Vector3())
+  const targetCameraPositionRef = useRef(new THREE.Vector3())
+  const startControlsTargetRef = useRef(new THREE.Vector3())
+  const targetControlsTargetRef = useRef(new THREE.Vector3())
 
   const draggedPartRef = useRef<Part | null>(null)
-  const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane())
-  const dragOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3())
+  const dragPlaneRef = useRef(new THREE.Plane())
+  const dragOffsetRef = useRef(new THREE.Vector3())
   const pointerDownRef = useRef(false)
   const pointerDownTimeRef = useRef(0)
-  const previousDragPositionRef = useRef<THREE.Vector3>(new THREE.Vector3())
-  const grabPointRef = useRef<THREE.Vector3>(new THREE.Vector3())
+  const previousDragPositionRef = useRef(new THREE.Vector3())
+  const grabPointRef = useRef(new THREE.Vector3())
+  const selectedPartRef = useRef("")
 
   useEffect(() => {
     if (!scene) return
@@ -91,7 +98,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
           }
           direction.normalize()
 
-          const distance = 1.5 + Math.random() * 0.8 + collisionRadius * 1.2
+          const distance = 0.6 + Math.random() * 0.3 + collisionRadius * 0.5
           const explodedPosition = obj.position.clone().add(direction.multiplyScalar(distance))
 
           let collisionMesh: THREE.Mesh | null = null
@@ -148,7 +155,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
         }
         direction.normalize()
 
-        const distance = 1.2 + Math.random() * 0.6 + collisionRadius * 1.2
+        const distance = 0.5 + Math.random() * 0.2 + collisionRadius * 0.5
         const explodedPosition = obj.position.clone().add(direction.multiplyScalar(distance))
 
         explodableParts.push({
@@ -262,9 +269,7 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
 
       if (holdTime < 150 && draggedPartRef.current) {
         const part = draggedPartRef.current
-        onPartSelect(selectedPart === part.name ? null : part.name)
-
-        if (selectedPart !== part.name) {
+        if (selectedPartRef.current !== part.name) {
           const box = new THREE.Box3().setFromObject(part.object)
           const center = box.getCenter(new THREE.Vector3())
           const size = box.getSize(new THREE.Vector3())
@@ -274,24 +279,10 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
           const direction = camera.position.clone().sub(center).normalize()
           const newPosition = center.clone().add(direction.multiplyScalar(distance))
 
-          const startPosition = camera.position.clone()
-          const startTime = Date.now()
-          const duration = 1000
-
-          const animateCamera = () => {
-            const elapsed = Date.now() - startTime
-            const progress = Math.min(elapsed / duration, 1)
-            const eased = 1 - Math.pow(1 - progress, 3)
-
-            camera.position.lerpVectors(startPosition, newPosition, eased)
-            camera.lookAt(center)
-
-            if (progress < 1) {
-              requestAnimationFrame(animateCamera)
-            }
-          }
-
-          animateCamera()
+          startCameraPositionRef.current.copy(camera.position)
+          targetCameraPositionRef.current.copy(newPosition)
+          cameraAnimationStartRef.current = Date.now()
+          isCameraAnimatingRef.current = true
         }
       }
 
@@ -317,47 +308,31 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
       canvas.removeEventListener("pointerup", handlePointerUp)
       canvas.removeEventListener("pointercancel", handlePointerUp)
     }
-  }, [parts, camera, scene, gl, raycaster, pointer, controls, selectedPart, onPartSelect])
+  }, [parts, camera, scene, gl, raycaster, pointer, controls])
+
+  const previousIsExplodedRef = useRef(isExploded)
 
   useEffect(() => {
-    if (!scene || parts.length === 0) return
-
-    const box = new THREE.Box3()
-
-    if (isExploded) {
-      parts.forEach((part) => {
-        const partBox = new THREE.Box3().setFromObject(part.object)
-        const explodedBox = partBox.clone()
-        explodedBox.translate(part.explodedPosition.clone().sub(part.originalPosition))
-        box.union(explodedBox)
-      })
-    } else {
-      box.setFromObject(scene)
+    if (previousIsExplodedRef.current !== isExploded) {
+      animationStartTimeRef.current = Date.now()
+      isAnimatingRef.current = true
+      previousIsExplodedRef.current = isExploded
     }
+  }, [isExploded])
 
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
+  const easeOutQuart = (t: number): number => {
+    return 1 - Math.pow(1 - t, 4)
+  }
 
-    const maxDim = Math.max(size.x, size.y, size.z)
-    const fov = camera instanceof THREE.PerspectiveCamera ? camera.fov : 50
-    const cameraDistance = maxDim / (2 * Math.tan((fov * Math.PI) / 360))
-
-    const distance = cameraDistance * 1.8
-    camera.position.set(distance, distance * 0.7, distance)
-    camera.lookAt(center)
-
-    if (controls && "target" in controls) {
-      ;(controls as any).target.copy(center)
-      ;(controls as any).update()
-    }
-
-    camera.updateProjectionMatrix()
-  }, [scene, camera, controls, parts, isExploded])
+  const easeOutCubic = (t: number): number => {
+    return 1 - Math.pow(1 - t, 3)
+  }
 
   useFrame((state, delta) => {
     if (!groupRef.current || parts.length === 0) return
 
-    let allSettled = true
+    const animationDuration = 900 // 0.9 seconds for reassembly
+    const animationProgress = 1
 
     parts.forEach((part, index) => {
       const {
@@ -376,94 +351,82 @@ function Model({ url, isExploded, selectedPart, onPartSelect, onExplodeComplete,
         object.rotation.y += angularVelocity.y * delta
         object.rotation.z += angularVelocity.z * delta
 
-        // Dampen angular velocity
         angularVelocity.x *= 0.95
         angularVelocity.y *= 0.95
         angularVelocity.z *= 0.95
         return
       }
 
-      const targetPosition = isExploded ? explodedPosition : originalPosition
+      if (!isDragging && velocity.length() > 0.01) {
+        object.position.add(velocity.clone().multiplyScalar(delta))
+        currentPosition.copy(object.position)
+        velocity.multiplyScalar(0.92)
 
-      const distanceFromTarget = currentPosition.distanceTo(targetPosition)
-      const maxDistance = 8
+        object.rotation.x += angularVelocity.x * delta
+        object.rotation.y += angularVelocity.y * delta
+        object.rotation.z += angularVelocity.z * delta
 
-      if (distanceFromTarget > 0.01) {
-        allSettled = false
+        angularVelocity.x *= 0.92
+        angularVelocity.y *= 0.92
+        angularVelocity.z *= 0.92
+
+        const targetPosition = isExploded ? explodedPosition : originalPosition
+        const returnForce = targetPosition.clone().sub(currentPosition).multiplyScalar(0.05)
+        velocity.add(returnForce)
+        return
       }
 
-      const attractionStrength = Math.min(distanceFromTarget / maxDistance, 1) * 0.008
-      const attractionForce = targetPosition.clone().sub(currentPosition).multiplyScalar(attractionStrength)
-      velocity.add(attractionForce)
+      const targetPosition = isExploded ? explodedPosition : originalPosition
 
-      parts.forEach((otherPart, otherIndex) => {
-        if (index === otherIndex || otherPart.isDragging) return
-
-        const distance = currentPosition.distanceTo(otherPart.currentPosition)
-        const minDistance = part.collisionRadius + otherPart.collisionRadius
-
-        if (distance < minDistance * 1.1) {
-          const partBox = part.boundingBox.clone()
-          partBox.translate(currentPosition.clone().sub(part.originalPosition))
-
-          const otherBox = otherPart.boundingBox.clone()
-          otherBox.translate(otherPart.currentPosition.clone().sub(otherPart.originalPosition))
-
-          if (partBox.intersectsBox(otherBox)) {
-            const repulsionDirection = currentPosition.clone().sub(otherPart.currentPosition).normalize()
-            const overlap = minDistance - distance
-
-            const repulsionForce = repulsionDirection.multiplyScalar(overlap * 0.08)
-
-            const relativeVelocity = velocity.clone().sub(otherPart.velocity)
-            const velocityAlongNormal = relativeVelocity.dot(repulsionDirection)
-
-            if (velocityAlongNormal < 0) {
-              const impulse = repulsionDirection.multiplyScalar(velocityAlongNormal * 0.5)
-              velocity.sub(impulse)
-            }
-
-            velocity.add(repulsionForce)
-          }
-        }
-      })
-
-      currentPosition.add(velocity)
-      velocity.multiplyScalar(0.92)
-
-      object.position.copy(currentPosition)
+      if (isAnimatingRef.current) {
+        const animationProgress = (Date.now() - animationStartTimeRef.current) / animationDuration
+        currentPosition.lerpVectors(
+          isExploded ? originalPosition : explodedPosition,
+          targetPosition,
+          easeOutCubic(animationProgress),
+        )
+        object.position.copy(currentPosition)
+      } else {
+        object.position.copy(currentPosition)
+      }
 
       if (isExploded) {
-        // Floating bob animation
         const bobAmount = Math.sin(state.clock.elapsedTime * part.bobSpeed + part.floatOffset) * 0.03
         object.position.y += bobAmount * delta * 5
 
-        // Apply angular velocity for continuous rotation
         object.rotation.x += angularVelocity.x * delta + part.rotationSpeed * 0.3 * delta
         object.rotation.y += angularVelocity.y * delta + part.rotationSpeed * delta
         object.rotation.z += angularVelocity.z * delta + part.rotationSpeed * 0.2 * delta
 
-        // Dampen angular velocity
         angularVelocity.x *= 0.98
         angularVelocity.y *= 0.98
         angularVelocity.z *= 0.98
       } else {
-        object.rotation.x += (originalRotation.x - object.rotation.x) * 0.1
-        object.rotation.y += (originalRotation.y - object.rotation.y) * 0.1
-        object.rotation.z += (originalRotation.z - object.rotation.z) * 0.1
+        if (isAnimatingRef.current) {
+          const rotationProgress = Math.min(
+            easeOutCubic((Date.now() - animationStartTimeRef.current) / animationDuration) * 1.3,
+            1,
+          )
+          object.rotation.x = THREE.MathUtils.lerp(object.rotation.x, originalRotation.x, rotationProgress)
+          object.rotation.y = THREE.MathUtils.lerp(object.rotation.y, originalRotation.y, rotationProgress)
+          object.rotation.z = THREE.MathUtils.lerp(object.rotation.z, originalRotation.z, rotationProgress)
+        }
 
-        // Reset angular velocity when assembling
-        angularVelocity.x *= 0.9
-        angularVelocity.y *= 0.9
-        angularVelocity.z *= 0.9
+        angularVelocity.x *= 0.7
+        angularVelocity.y *= 0.7
+        angularVelocity.z *= 0.7
       }
     })
 
-    if (allSettled && isExploded && !hasExplodedRef.current) {
-      hasExplodedRef.current = true
-      onExplodeComplete?.()
-    } else if (!isExploded) {
-      hasExplodedRef.current = false
+    if (isAnimatingRef.current) {
+      const elapsed = Date.now() - animationStartTimeRef.current
+      const duration = animationDuration
+      const progress = Math.min(elapsed / duration, 1)
+      const easedProgress = easeOutCubic(progress)
+
+      if (progress >= 1) {
+        isAnimatingRef.current = false
+      }
     }
   })
 
@@ -478,11 +441,12 @@ function LoadingFallback() {
   return null
 }
 
-export function ModelViewer({ modelUrl, isExploded, selectedPart, onPartSelect, onExplodeComplete }: ModelViewerProps) {
+export function ModelViewer({ modelUrl, isExploded, onExplodeComplete }: ModelViewerProps) {
   const [lightPosition, setLightPosition] = useState(new THREE.Vector3(10, 10, 5))
   const lightRef = useRef<THREE.DirectionalLight>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
+  const [selectedPart, setSelectedPart] = useState("")
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
@@ -556,13 +520,22 @@ export function ModelViewer({ modelUrl, isExploded, selectedPart, onPartSelect, 
             url={modelUrl}
             isExploded={isExploded}
             selectedPart={selectedPart}
-            onPartSelect={onPartSelect}
+            onPartSelect={setSelectedPart}
             onExplodeComplete={onExplodeComplete}
             lightPosition={lightPosition}
           />
         </Suspense>
 
-        <OrbitControls enablePan={true} enableZoom={true} enableRotate={true} minDistance={2} maxDistance={20} />
+        <OrbitControls
+          makeDefault
+          enablePan={true}
+          enableZoom={true}
+          enableRotate={true}
+          enableDamping={true}
+          dampingFactor={0.05}
+          minDistance={2}
+          maxDistance={20}
+        />
       </Canvas>
     </div>
   )
