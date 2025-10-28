@@ -523,6 +523,53 @@ function LoadingFallback() {
 
 type LightingPreset = "gallery" | "golden-hour" | "nordic" | "spotlight"
 
+type MaterialPreset = "default" | "matte" | "glossy" | "metallic" | "wood" | "fabric"
+
+const MATERIAL_PRESETS = {
+  default: {
+    name: "Default",
+    roughness: null, // Keep original
+    metalness: null, // Keep original
+    clearcoat: 0,
+    clearcoatRoughness: 0,
+  },
+  matte: {
+    name: "Matte",
+    roughness: 0.9,
+    metalness: 0.0,
+    clearcoat: 0,
+    clearcoatRoughness: 0,
+  },
+  glossy: {
+    name: "Glossy",
+    roughness: 0.1,
+    metalness: 0.0,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+  },
+  metallic: {
+    name: "Metallic",
+    roughness: 0.3,
+    metalness: 1.0,
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.2,
+  },
+  wood: {
+    name: "Wood",
+    roughness: 0.7,
+    metalness: 0.0,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.4,
+  },
+  fabric: {
+    name: "Fabric",
+    roughness: 1.0,
+    metalness: 0.0,
+    clearcoat: 0,
+    clearcoatRoughness: 0,
+  },
+}
+
 const BACKGROUNDS = [
   {
     name: "Default",
@@ -611,6 +658,8 @@ export function ModelViewer({
   const [wireframeMode, setWireframeMode] = useState(false)
   const [cameraFov, setCameraFov] = useState(50)
   const [bloomEnabled, setBloomEnabled] = useState(true)
+  const [autoRotate, setAutoRotate] = useState(false)
+  const [materialPreset, setMaterialPreset] = useState<MaterialPreset>("default")
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -624,6 +673,7 @@ export function ModelViewer({
 
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const controlsRef = useRef<any>(null)
+  const glRef = useRef<THREE.WebGLRenderer | null>(null)
   const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 5, 2.75))
   const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
 
@@ -947,15 +997,45 @@ export function ModelViewer({
       else if (e.key === "x" || e.key === "X") {
         e.preventDefault()
         setWireframeMode((prev) => !prev)
-      } else if (e.key === "l" || e.key === "L") {
+      }
+      // L key - Toggle bloom
+      else if (e.key === "l" || e.key === "L") {
         e.preventDefault()
         setBloomEnabled((prev) => !prev)
+      } else if (e.key === "s" || e.key === "S") {
+        e.preventDefault()
+        if (glRef.current) {
+          try {
+            const canvas = glRef.current.domElement
+            canvas.toBlob((blob) => {
+              if (blob) {
+                const url = URL.createObjectURL(blob)
+                const link = document.createElement("a")
+                link.href = url
+                link.download = `chair-${chairIndex}-${Date.now()}.png`
+                link.click()
+                URL.revokeObjectURL(url)
+              }
+            })
+          } catch (error) {
+            console.error("[v0] Screenshot failed:", error)
+          }
+        }
+      } else if (e.key === "t" || e.key === "T") {
+        e.preventDefault()
+        setAutoRotate((prev) => !prev)
+      } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault()
+        const presets: MaterialPreset[] = ["default", "matte", "glossy", "metallic", "wood", "fabric"]
+        const currentIndex = presets.indexOf(materialPreset)
+        const nextIndex = (currentIndex + 1) % presets.length
+        setMaterialPreset(presets[nextIndex])
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightingPreset])
+  }, [lightingPreset, chairIndex, materialPreset])
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const currentBackground = BACKGROUNDS[backgroundIndex]
@@ -985,11 +1065,13 @@ export function ModelViewer({
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: useEnhancedRendering ? 1.8 : 1.2,
           powerPreference: useEnhancedRendering ? "high-performance" : "default",
+          preserveDrawingBuffer: true, // Required for screenshots
         }}
         shadows={useEnhancedRendering ? "soft" : true}
-        onCreated={({ camera, controls }) => {
+        onCreated={({ camera, controls, gl }) => {
           cameraRef.current = camera as THREE.PerspectiveCamera
           controlsRef.current = controls
+          glRef.current = gl // Store renderer reference for screenshots
         }}
       >
         <CameraController fov={cameraFov} wireframeMode={wireframeMode} modelUrl={displayedModelUrl} />
@@ -1072,6 +1154,7 @@ export function ModelViewer({
               lightPosition={new THREE.Vector3(...mainLightPos)}
               opacity={1 - transitionProgress}
               wireframeMode={wireframeMode}
+              materialPreset={materialPreset}
             />
           )}
           <ModelWithWireframe
@@ -1081,6 +1164,7 @@ export function ModelViewer({
             lightPosition={new THREE.Vector3(...mainLightPos)}
             opacity={transitionProgress}
             wireframeMode={wireframeMode}
+            materialPreset={materialPreset}
           />
         </Suspense>
 
@@ -1093,6 +1177,8 @@ export function ModelViewer({
           dampingFactor={0.05}
           minDistance={1}
           maxDistance={15}
+          autoRotate={autoRotate}
+          autoRotateSpeed={2.0}
         />
 
         {useEnhancedRendering && (
@@ -1164,30 +1250,60 @@ function ModelWithWireframe({
   lightPosition,
   opacity,
   wireframeMode,
-}: ModelProps & { wireframeMode: boolean }) {
+  materialPreset,
+}: ModelProps & { wireframeMode: boolean; materialPreset: MaterialPreset }) {
   const { scene } = useGLTF(url)
+  const originalMaterialsRef = useRef<Map<THREE.Material, { roughness: number; metalness: number }>>(new Map())
 
   useEffect(() => {
     if (!scene) return // Ensure scene is loaded before traversing
 
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
-        if (Array.isArray(child.material)) {
-          child.material.forEach((mat) => {
-            if (mat) {
-              // Check if material exists
-              mat.wireframe = wireframeMode
+        const materials = Array.isArray(child.material) ? child.material : [child.material]
+
+        materials.forEach((mat) => {
+          if (mat && mat instanceof THREE.MeshStandardMaterial) {
+            // Store original properties on first encounter
+            if (!originalMaterialsRef.current.has(mat)) {
+              originalMaterialsRef.current.set(mat, {
+                roughness: mat.roughness,
+                metalness: mat.metalness,
+              })
             }
-          })
-        } else {
-          if (child.material) {
-            // Check if material exists
-            child.material.wireframe = wireframeMode
+
+            mat.wireframe = wireframeMode
+
+            // Apply material preset
+            const preset = MATERIAL_PRESETS[materialPreset]
+            if (preset.roughness !== null) {
+              mat.roughness = preset.roughness
+            } else {
+              // Restore original
+              const original = originalMaterialsRef.current.get(mat)
+              if (original) {
+                mat.roughness = original.roughness
+              }
+            }
+
+            if (preset.metalness !== null) {
+              mat.metalness = preset.metalness
+            } else {
+              // Restore original
+              const original = originalMaterialsRef.current.get(mat)
+              if (original) {
+                mat.metalness = original.metalness
+              }
+            }
+
+            mat.clearcoat = preset.clearcoat
+            mat.clearcoatRoughness = preset.clearcoatRoughness
+            mat.needsUpdate = true
           }
-        }
+        })
       }
     })
-  }, [scene, wireframeMode]) // Depend on scene and wireframeMode
+  }, [scene, wireframeMode, materialPreset]) // Depend on scene, wireframeMode and materialPreset
 
   // Pass the opacity prop to the underlying Model component
   return <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} />
