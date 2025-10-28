@@ -523,6 +523,34 @@ function LoadingFallback() {
 
 type LightingPreset = "gallery" | "golden-hour" | "nordic" | "spotlight"
 
+const BACKGROUNDS = [
+  {
+    name: "Warm Studio",
+    gradient: "linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)",
+    sceneColor: "#fdd4b8",
+  },
+  {
+    name: "Cool Twilight",
+    gradient: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)",
+    sceneColor: "#cbe2e9",
+  },
+  {
+    name: "Professional Gray",
+    gradient: "linear-gradient(135deg, #e0e0e0 0%, #c9c9c9 100%)",
+    sceneColor: "#d4d4d4",
+  },
+  {
+    name: "Soft Beige",
+    gradient: "linear-gradient(135deg, #f5f5dc 0%, #e8dcc4 100%)",
+    sceneColor: "#eee9d0",
+  },
+  {
+    name: "Sage Green",
+    gradient: "linear-gradient(135deg, #d4e7d7 0%, #b8d4bb 100%)",
+    sceneColor: "#c6ddc9",
+  },
+]
+
 const LIGHTING_PRESETS = {
   gallery: {
     name: "Gallery",
@@ -574,6 +602,7 @@ export function ModelViewer({
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
   const [showGround, setShowGround] = useState(true)
+  const [backgroundIndex, setBackgroundIndex] = useState(0)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -852,6 +881,9 @@ export function ModelViewer({
         setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
         setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
         setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
+      } else if (e.key === "b" || e.key === "B") {
+        e.preventDefault()
+        setBackgroundIndex((prev) => (prev + 1) % BACKGROUNDS.length)
       }
     }
 
@@ -860,10 +892,7 @@ export function ModelViewer({
   }, [lightingPreset])
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
-  const bgColor = theme === "light" ? "#ffffff" : "#000000"
-
-  const oldModelOpacity = previousModelUrl ? 1 - transitionProgress : 0
-  const newModelOpacity = previousModelUrl ? transitionProgress : 1
+  const currentBackground = BACKGROUNDS[backgroundIndex]
 
   const isHighPerformanceDevice =
     typeof window !== "undefined" && (/iPad|Macintosh/.test(navigator.userAgent) || window.innerWidth >= 1024)
@@ -875,7 +904,10 @@ export function ModelViewer({
   const shadowRadius = useEnhancedRendering ? 6 : 1
 
   return (
-    <div className="w-full h-full relative" style={{ background: bgColor, transition: "none" }}>
+    <div
+      className="w-full h-full relative"
+      style={{ background: currentBackground.gradient, transition: "background 0.5s ease" }}
+    >
       <Canvas
         camera={{ position: [2.75, 5, 2.75], fov: 50 }}
         gl={{
@@ -886,9 +918,8 @@ export function ModelViewer({
           powerPreference: useEnhancedRendering ? "high-performance" : "default",
         }}
         shadows={useEnhancedRendering ? "soft" : true}
-        style={{ background: bgColor, transition: "none" }}
       >
-        <color attach="background" args={[bgColor]} />
+        <color attach="background" args={[currentBackground.sceneColor]} />
 
         <ambientLight
           intensity={useEnhancedRendering ? currentPreset.ambientIntensity * 1.3 : currentPreset.ambientIntensity}
@@ -964,7 +995,7 @@ export function ModelViewer({
               url={previousModelUrl}
               isExploded={isExploded}
               lightPosition={new THREE.Vector3(...mainLightPos)}
-              opacity={oldModelOpacity}
+              opacity={1 - transitionProgress}
             />
           )}
           <Model
@@ -972,7 +1003,7 @@ export function ModelViewer({
             url={displayedModelUrl}
             isExploded={isExploded}
             lightPosition={new THREE.Vector3(...mainLightPos)}
-            opacity={newModelOpacity}
+            opacity={transitionProgress}
           />
         </Suspense>
 
