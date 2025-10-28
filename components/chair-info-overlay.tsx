@@ -1,6 +1,6 @@
 "use client"
 
-import { X, ChevronDown, Sun, Moon, Gauge } from "lucide-react"
+import { X, ChevronDown, Sun, Moon, Gauge, Ship } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
 
@@ -80,10 +80,10 @@ export function ChairInfoOverlay({
                 variant="ghost"
                 size="icon"
                 onClick={onPerformanceModeToggle}
-                className={`rounded-full w-8 h-8 ${textMutedClass} ${theme === "light" ? "hover:text-black" : "hover:text-white"} ${hoverBgClass} flex-shrink-0 ${performanceMode ? (theme === "light" ? "bg-black/10 text-black" : "bg-white/10 text-white") : ""}`}
+                className={`rounded-full w-8 h-8 ${textMutedClass} ${theme === "light" ? "hover:text-black" : "hover:text-white"} ${hoverBgClass} flex-shrink-0`}
                 title={performanceMode ? "Performance mode enabled" : "Performance mode disabled"}
               >
-                <Gauge className="w-4 h-4" />
+                {performanceMode ? <Ship className="w-4 h-4" /> : <Gauge className="w-4 h-4" />}
               </Button>
               <Button
                 variant="ghost"
