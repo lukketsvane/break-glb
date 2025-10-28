@@ -610,6 +610,7 @@ export function ModelViewer({
   const [backgroundIndex, setBackgroundIndex] = useState(0)
   const [wireframeMode, setWireframeMode] = useState(false)
   const [cameraFov, setCameraFov] = useState(50)
+  const [bloomEnabled, setBloomEnabled] = useState(true)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -931,14 +932,13 @@ export function ModelViewer({
           cameraRef.current.position.copy(defaultCameraPosition.current)
           controlsRef.current.target.copy(defaultCameraTarget.current)
           controlsRef.current.update()
-          setCameraFov(50) // Reset FOV to default
+          setCameraFov(50)
         }
       }
       // F key - Focus/frame the model (auto-fit to view)
       else if (e.key === "f" || e.key === "F") {
         e.preventDefault()
         if (cameraRef.current && controlsRef.current) {
-          // Auto-frame logic will be handled in the CameraController component
           const event = new CustomEvent("autoframe")
           window.dispatchEvent(event)
         }
@@ -947,6 +947,9 @@ export function ModelViewer({
       else if (e.key === "x" || e.key === "X") {
         e.preventDefault()
         setWireframeMode((prev) => !prev)
+      } else if (e.key === "l" || e.key === "L") {
+        e.preventDefault()
+        setBloomEnabled((prev) => !prev)
       }
     }
 
@@ -1096,7 +1099,7 @@ export function ModelViewer({
           <EffectComposer>
             <DepthOfField focusDistance={0.015} focalLength={0.08} bokehScale={4} height={720} />
             <SSAO samples={64} radius={0.08} intensity={50} luminanceInfluence={0.5} color="black" />
-            <Bloom intensity={0.5} luminanceThreshold={0.85} luminanceSmoothing={0.95} />
+            {bloomEnabled && <Bloom intensity={0.5} luminanceThreshold={0.85} luminanceSmoothing={0.95} />}
           </EffectComposer>
         )}
       </Canvas>
