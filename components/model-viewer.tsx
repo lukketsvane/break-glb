@@ -1224,7 +1224,7 @@ export function ModelViewer({
           minDistance={1}
           maxDistance={15}
           autoRotate={autoRotate}
-          autoRotateSpeed={2.0}
+          autoRotateSpeed={1.0} // Reduced from 2.0 to 1.0 (half speed)
         />
 
         {useEnhancedRendering && (
