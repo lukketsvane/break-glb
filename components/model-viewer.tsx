@@ -513,20 +513,34 @@ export function ModelViewer({
   const lastThreeFingerTapTimeRef = useRef(0)
 
   const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
-  const [nextModelUrl, setNextModelUrl] = useState<string | null>(null)
-  const [isTransitioning, setIsTransitioning] = useState(false)
 
   useEffect(() => {
     if (modelUrl !== displayedModelUrl) {
-      setNextModelUrl(modelUrl)
-      setIsTransitioning(true)
+      // Preload the new model
       useGLTF.preload(modelUrl)
-      const timer = setTimeout(() => {
+
+      // Wait for model to be fully loaded before switching
+      const checkInterval = setInterval(() => {
+        try {
+          const cached = (useGLTF as any).cache.get(modelUrl)
+          if (cached) {
+            clearInterval(checkInterval)
+            setDisplayedModelUrl(modelUrl)
+          }
+        } catch (e) {
+          // Model not ready yet, keep waiting
+        }
+      }, 50)
+
+      const fallbackTimeout = setTimeout(() => {
+        clearInterval(checkInterval)
         setDisplayedModelUrl(modelUrl)
-        setNextModelUrl(null)
-        setIsTransitioning(false)
-      }, 100)
-      return () => clearTimeout(timer)
+      }, 2000)
+
+      return () => {
+        clearInterval(checkInterval)
+        clearTimeout(fallbackTimeout)
+      }
     }
   }, [modelUrl, displayedModelUrl])
 
@@ -637,12 +651,12 @@ export function ModelViewer({
   const bgColor = theme === "light" ? "#ffffff" : "#000000"
 
   return (
-    <div className="w-full h-full" style={{ background: bgColor }}>
+    <div className="w-full h-full" style={{ background: bgColor, transition: "none" }}>
       <Canvas
         camera={{ position: [2.75, 5, 2.75], fov: 50 }}
         gl={{ antialias: true, alpha: false }}
         shadows
-        style={{ background: bgColor }}
+        style={{ background: bgColor, transition: "none" }}
       >
         <color attach="background" args={[bgColor]} />
 
@@ -696,11 +710,6 @@ export function ModelViewer({
             isExploded={isExploded}
             lightPosition={lightPosition}
           />
-          {nextModelUrl && (
-            <group visible={false}>
-              <Model key={nextModelUrl} url={nextModelUrl} isExploded={false} lightPosition={lightPosition} />
-            </group>
-          )}
         </Suspense>
 
         <OrbitControls

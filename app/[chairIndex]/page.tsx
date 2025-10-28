@@ -236,12 +236,12 @@ export default function ChairPage() {
   return (
     <div
       className="h-dvh w-screen relative overflow-hidden"
-      style={{ background: theme === "light" ? "#ffffff" : "#000000" }}
+      style={{ background: theme === "light" ? "#ffffff" : "#000000", transition: "none" }}
     >
       <div className="h-full w-full relative">
         <ModelViewer modelUrl={modelUrl} isExploded={isExploded} chairIndex={chairIndex} theme={theme} />
 
-        <div className="absolute top-6 right-6">
+        <div className="absolute top-6 right-6 z-10">
           <Button
             variant="ghost"
             size="icon"
@@ -268,7 +268,7 @@ export default function ChairPage() {
           onThemeToggle={handleThemeToggle}
         />
 
-        <div className="absolute bottom-0 left-0 right-0 pb-[max(2rem,env(safe-area-inset-bottom))] flex justify-center">
+        <div className="absolute bottom-0 left-0 right-0 pb-[max(2rem,env(safe-area-inset-bottom))] flex justify-center z-10">
           <div
             className={`flex items-center gap-3 backdrop-blur-xl border rounded-full px-3 py-3 shadow-2xl ${
               theme === "light" ? "bg-white/80 border-black/10" : "bg-black/80 border-white/10"
