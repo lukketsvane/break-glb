@@ -664,6 +664,8 @@ export function ModelViewer({
   const [materialPreset, setMaterialPreset] = useState<MaterialPreset>("default")
   const [isOrthographic, setIsOrthographic] = useState(false)
 
+  const [autoRotateSpeed, setAutoRotateSpeed] = useState(1.0)
+
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
   const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 18, 0])
@@ -953,8 +955,17 @@ export function ModelViewer({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= "1" && e.key <= "9") {
+        e.preventDefault()
+        const speed = Number.parseInt(e.key) * 0.2 // 1=0.2, 5=1.0, 9=1.8
+        setAutoRotateSpeed(speed)
+        // Enable auto-rotate if not already enabled
+        if (!autoRotate) {
+          setAutoRotate(true)
+        }
+      }
       // G key - Toggle ground visibility
-      if (e.key === "g" || e.key === "G") {
+      else if (e.key === "g" || e.key === "G") {
         e.preventDefault()
         setShowGround((prev) => !prev)
       }
@@ -1071,7 +1082,7 @@ export function ModelViewer({
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode]) // Added onToggleExplode to dependencies
+  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode, autoRotate, autoRotateSpeed]) // Added onToggleExplode and autoRotateSpeed to dependencies
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const currentBackground = BACKGROUNDS[backgroundIndex]
@@ -1233,7 +1244,7 @@ export function ModelViewer({
           minDistance={1}
           maxDistance={15}
           autoRotate={autoRotate}
-          autoRotateSpeed={1.0} // Reduced from 2.0 to 1.0 (half speed)
+          autoRotateSpeed={autoRotateSpeed} // Use dynamic speed instead of hardcoded 1.0
         />
 
         {useEnhancedRendering && (

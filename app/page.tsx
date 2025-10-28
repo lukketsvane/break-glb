@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { modelCacheManager } from "@/lib/model-cache"
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import { Zap, ChevronLeft, ChevronRight, Info } from "lucide-react"
@@ -148,6 +149,7 @@ export default function Home() {
 
     if (!currentModel) return
 
+    modelCacheManager.addToCache(currentModel)
     useGLTF.preload(currentModel)
 
     const preloadRange = mobile ? 1 : 3
@@ -159,9 +161,11 @@ export default function Home() {
           const nextIndex = chairIndex + i
 
           if (prevIndex >= 0 && chairModels[prevIndex]) {
+            modelCacheManager.addToCache(chairModels[prevIndex])
             useGLTF.preload(chairModels[prevIndex])
           }
           if (nextIndex < chairModels.length && chairModels[nextIndex]) {
+            modelCacheManager.addToCache(chairModels[nextIndex])
             useGLTF.preload(chairModels[nextIndex])
           }
         }
@@ -169,6 +173,17 @@ export default function Home() {
       mobile ? 500 : 100,
     )
   }, [chairIndex, chairModels])
+
+  useEffect(() => {
+    return () => {
+      // Clear cache when component unmounts (e.g., navigating away)
+      if (typeof window !== "undefined") {
+        window.addEventListener("beforeunload", () => {
+          modelCacheManager.clearAll()
+        })
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!autoBreakEnabled) return
