@@ -1007,9 +1007,22 @@ export function ModelViewer({
       // S key - Screenshot
       else if (e.key === "s" || e.key === "S") {
         e.preventDefault()
-        if (glRef.current) {
+        if (glRef.current && cameraRef.current) {
           try {
-            const canvas = glRef.current.domElement
+            const gl = glRef.current
+            const scene = gl.scene
+
+            // Store original background
+            const originalBackground = scene.background
+
+            // Set transparent background
+            scene.background = null
+
+            // Render one frame with transparent background
+            gl.render(scene, cameraRef.current)
+
+            // Capture the canvas
+            const canvas = gl.domElement
             canvas.toBlob((blob) => {
               if (blob) {
                 const url = URL.createObjectURL(blob)
@@ -1019,7 +1032,11 @@ export function ModelViewer({
                 link.click()
                 URL.revokeObjectURL(url)
               }
-            })
+
+              // Restore original background
+              scene.background = originalBackground
+              gl.render(scene, cameraRef.current!)
+            }, "image/png")
           } catch (error) {
             console.error("[v0] Screenshot failed:", error)
           }
@@ -1085,7 +1102,7 @@ export function ModelViewer({
         orthographic={isOrthographic}
         gl={{
           antialias: true,
-          alpha: false,
+          alpha: true, // Changed from false to true to enable transparency support
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: useEnhancedRendering ? 1.8 : 1.2,
           powerPreference: useEnhancedRendering ? "high-performance" : "default",
