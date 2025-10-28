@@ -40,6 +40,7 @@ interface Part {
 
 function Model({ url, isExploded, lightPosition }: ModelProps) {
   const { scene } = useGLTF(url)
+  const [isLoaded, setIsLoaded] = useState(false)
   const groupRef = useRef<THREE.Group>(null)
   const [parts, setParts] = useState<Part[]>([])
   const { camera, controls, gl } = useThree()
@@ -58,21 +59,14 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
   const isExplodedRef = useRef(isExploded)
 
   useEffect(() => {
-    partsRef.current = parts
-  }, [parts])
-
-  useEffect(() => {
-    isExplodedRef.current = isExploded
-  }, [isExploded])
-
-  useEffect(() => {
     if (!scene) return
+
+    setIsLoaded(true)
 
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         child.receiveShadow = true
-        console.log("[v0] Enabled shadows on mesh:", child.name)
       }
     })
 
@@ -80,7 +74,6 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
     const minY = box.min.y
     const size = box.getSize(new THREE.Vector3())
     scene.position.y = -minY // Lift the model so its bottom is at y=0
-    console.log("[v0] Model positioned on ground, minY offset:", -minY, "Model size:", size)
 
     const explodableParts: Part[] = []
 
@@ -444,6 +437,8 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
     })
   })
 
+  if (!isLoaded) return null
+
   return (
     <group ref={groupRef}>
       <primitive object={scene} />
@@ -517,13 +512,23 @@ export function ModelViewer({
   const threeFingerTapTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastThreeFingerTapTimeRef = useRef(0)
 
-  const [currentModelUrl, setCurrentModelUrl] = useState(modelUrl)
+  const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
+  const [nextModelUrl, setNextModelUrl] = useState<string | null>(null)
+  const [isTransitioning, setIsTransitioning] = useState(false)
 
   useEffect(() => {
-    if (modelUrl !== currentModelUrl) {
-      setCurrentModelUrl(modelUrl)
+    if (modelUrl !== displayedModelUrl) {
+      setNextModelUrl(modelUrl)
+      setIsTransitioning(true)
+      useGLTF.preload(modelUrl)
+      const timer = setTimeout(() => {
+        setDisplayedModelUrl(modelUrl)
+        setNextModelUrl(null)
+        setIsTransitioning(false)
+      }, 100)
+      return () => clearTimeout(timer)
     }
-  }, [modelUrl, currentModelUrl])
+  }, [modelUrl, displayedModelUrl])
 
   useEffect(() => {
     const handleThreeFingerTap = (e: TouchEvent) => {
@@ -532,11 +537,9 @@ export function ModelViewer({
         const timeSinceLastTap = now - lastThreeFingerTapTimeRef.current
 
         if (timeSinceLastTap < 300) {
-          // Double tap detected with three fingers
           threeFingerTapCountRef.current++
 
           if (threeFingerTapCountRef.current === 2) {
-            // Cycle to next preset
             const presets: LightingPreset[] = ["studio", "dramatic", "soft", "colorful"]
             const currentIndex = presets.indexOf(lightingPreset)
             const nextIndex = (currentIndex + 1) % presets.length
@@ -547,8 +550,6 @@ export function ModelViewer({
             setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
             setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
             setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
-
-            console.log("[v0] Switched to lighting preset:", nextPreset, "with randomized directions")
 
             threeFingerTapCountRef.current = 0
           }
@@ -638,7 +639,7 @@ export function ModelViewer({
   return (
     <div className="w-full h-full" style={{ background: bgColor }}>
       <Canvas
-        camera={{ position: [5, 5, 5], fov: 50 }}
+        camera={{ position: [2.75, 5, 2.75], fov: 50 }}
         gl={{ antialias: true, alpha: false }}
         shadows
         style={{ background: bgColor }}
@@ -688,8 +689,18 @@ export function ModelViewer({
           <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
         </mesh>
 
-        <Suspense fallback={<LoadingFallback />}>
-          <Model key={currentModelUrl} url={currentModelUrl} isExploded={isExploded} lightPosition={lightPosition} />
+        <Suspense fallback={null}>
+          <Model
+            key={displayedModelUrl}
+            url={displayedModelUrl}
+            isExploded={isExploded}
+            lightPosition={lightPosition}
+          />
+          {nextModelUrl && (
+            <group visible={false}>
+              <Model key={nextModelUrl} url={nextModelUrl} isExploded={false} lightPosition={lightPosition} />
+            </group>
+          )}
         </Suspense>
 
         <OrbitControls
@@ -699,8 +710,8 @@ export function ModelViewer({
           enableRotate={true}
           enableDamping={true}
           dampingFactor={0.05}
-          minDistance={2}
-          maxDistance={20}
+          minDistance={1}
+          maxDistance={15}
         />
       </Canvas>
     </div>
