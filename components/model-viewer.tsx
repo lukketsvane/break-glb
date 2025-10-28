@@ -525,6 +525,11 @@ type LightingPreset = "gallery" | "golden-hour" | "nordic" | "spotlight"
 
 const BACKGROUNDS = [
   {
+    name: "Default",
+    gradient: null, // Will use theme-based color
+    sceneColor: null, // Will use theme-based color
+  },
+  {
     name: "Warm Studio",
     gradient: "linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)",
     sceneColor: "#fdd4b8",
@@ -903,11 +908,14 @@ export function ModelViewer({
   const shadowBias = useEnhancedRendering ? -0.00002 : -0.001
   const shadowRadius = useEnhancedRendering ? 6 : 1
 
+  const bgColor = theme === "light" ? "#ffffff" : "#000000"
+  const sceneColor = theme === "light" ? "#ffffff" : "#000000"
+
+  const backgroundStyle = currentBackground.gradient ? currentBackground.gradient : bgColor
+  const sceneBackgroundColor = currentBackground.sceneColor ? currentBackground.sceneColor : sceneColor
+
   return (
-    <div
-      className="w-full h-full relative"
-      style={{ background: currentBackground.gradient, transition: "background 0.5s ease" }}
-    >
+    <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
       <Canvas
         camera={{ position: [2.75, 5, 2.75], fov: 50 }}
         gl={{
@@ -919,7 +927,7 @@ export function ModelViewer({
         }}
         shadows={useEnhancedRendering ? "soft" : true}
       >
-        <color attach="background" args={[currentBackground.sceneColor]} />
+        <color attach="background" args={[sceneBackgroundColor]} />
 
         <ambientLight
           intensity={useEnhancedRendering ? currentPreset.ambientIntensity * 1.3 : currentPreset.ambientIntensity}
