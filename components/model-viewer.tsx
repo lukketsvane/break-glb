@@ -608,6 +608,8 @@ export function ModelViewer({
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
   const [showGround, setShowGround] = useState(true)
   const [backgroundIndex, setBackgroundIndex] = useState(0)
+  const [wireframeMode, setWireframeMode] = useState(false)
+  const [cameraFov, setCameraFov] = useState(50)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -618,6 +620,11 @@ export function ModelViewer({
   const fillLightRef = useRef<THREE.DirectionalLight>(null)
   const spotLightRef = useRef<THREE.SpotLight>(null)
   const rimLightRef = useRef<THREE.DirectionalLight>(null)
+
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
+  const controlsRef = useRef<any>(null)
+  const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 5, 2.75))
+  const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
@@ -633,6 +640,9 @@ export function ModelViewer({
   const middleMouseClickCountRef = useRef(0)
   const middleMouseClickTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastMiddleMouseClickTimeRef = useRef(0)
+
+  const shiftRightMouseDownRef = useRef(false)
+  const shiftRightMouseStartRef = useRef<{ x: number; y: number; fov: number } | null>(null)
 
   const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
   const [previousModelUrl, setPreviousModelUrl] = useState<string | null>(null)
@@ -769,8 +779,14 @@ export function ModelViewer({
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
+      // Shift + right-click for FOV control
+      if (e.button === 2 && e.shiftKey) {
+        e.preventDefault()
+        shiftRightMouseDownRef.current = true
+        shiftRightMouseStartRef.current = { x: e.clientX, y: e.clientY, fov: cameraFov }
+      }
       // Middle mouse button is button 1
-      if (e.button === 1) {
+      else if (e.button === 1) {
         e.preventDefault()
         middleMouseDownRef.current = true
         middleMouseDraggingRef.current = false
@@ -816,7 +832,15 @@ export function ModelViewer({
     }
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (middleMouseDownRef.current && middleMouseStartRef.current) {
+      // Handle shift + right-click drag for FOV
+      if (shiftRightMouseDownRef.current && shiftRightMouseStartRef.current) {
+        e.preventDefault()
+        const deltaY = (e.clientY - shiftRightMouseStartRef.current.y) * 0.1
+        const newFov = Math.max(30, Math.min(90, shiftRightMouseStartRef.current.fov + deltaY))
+        setCameraFov(newFov)
+      }
+      // Handle middle mouse drag for light control
+      else if (middleMouseDownRef.current && middleMouseStartRef.current) {
         e.preventDefault()
         middleMouseDraggingRef.current = true
 
@@ -835,6 +859,10 @@ export function ModelViewer({
     }
 
     const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) {
+        shiftRightMouseDownRef.current = false
+        shiftRightMouseStartRef.current = null
+      }
       if (e.button === 1) {
         middleMouseDownRef.current = false
         middleMouseDraggingRef.current = false
@@ -843,6 +871,10 @@ export function ModelViewer({
     }
 
     const handleContextMenu = (e: MouseEvent) => {
+      // Prevent context menu when shift + right-click is used
+      if (shiftRightMouseDownRef.current || e.shiftKey) {
+        e.preventDefault()
+      }
       // Prevent context menu when middle mouse is used
       if (middleMouseDownRef.current || middleMouseDraggingRef.current) {
         e.preventDefault()
@@ -863,7 +895,7 @@ export function ModelViewer({
         clearTimeout(middleMouseClickTimerRef.current)
       }
     }
-  }, [lightingPreset])
+  }, [lightingPreset, cameraFov])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -886,9 +918,35 @@ export function ModelViewer({
         setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
         setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
         setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
-      } else if (e.key === "b" || e.key === "B") {
+      }
+      // B key - Cycle through backgrounds
+      else if (e.key === "b" || e.key === "B") {
         e.preventDefault()
         setBackgroundIndex((prev) => (prev + 1) % BACKGROUNDS.length)
+      }
+      // R key - Reset camera to default position
+      else if (e.key === "r" || e.key === "R") {
+        e.preventDefault()
+        if (cameraRef.current && controlsRef.current) {
+          cameraRef.current.position.copy(defaultCameraPosition.current)
+          controlsRef.current.target.copy(defaultCameraTarget.current)
+          controlsRef.current.update()
+          setCameraFov(50) // Reset FOV to default
+        }
+      }
+      // F key - Focus/frame the model (auto-fit to view)
+      else if (e.key === "f" || e.key === "F") {
+        e.preventDefault()
+        if (cameraRef.current && controlsRef.current) {
+          // Auto-frame logic will be handled in the CameraController component
+          const event = new CustomEvent("autoframe")
+          window.dispatchEvent(event)
+        }
+      }
+      // X key - Toggle wireframe mode
+      else if (e.key === "x" || e.key === "X") {
+        e.preventDefault()
+        setWireframeMode((prev) => !prev)
       }
     }
 
@@ -917,7 +975,7 @@ export function ModelViewer({
   return (
     <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
       <Canvas
-        camera={{ position: [2.75, 5, 2.75], fov: 50 }}
+        camera={{ position: [2.75, 5, 2.75], fov: cameraFov }}
         gl={{
           antialias: true,
           alpha: false,
@@ -926,7 +984,13 @@ export function ModelViewer({
           powerPreference: useEnhancedRendering ? "high-performance" : "default",
         }}
         shadows={useEnhancedRendering ? "soft" : true}
+        onCreated={({ camera, controls }) => {
+          cameraRef.current = camera as THREE.PerspectiveCamera
+          controlsRef.current = controls
+        }}
       >
+        <CameraController fov={cameraFov} wireframeMode={wireframeMode} modelUrl={displayedModelUrl} />
+
         <color attach="background" args={[sceneBackgroundColor]} />
 
         <ambientLight
@@ -998,20 +1062,22 @@ export function ModelViewer({
 
         <Suspense fallback={null}>
           {previousModelUrl && (
-            <Model
+            <ModelWithWireframe
               key={previousModelUrl}
               url={previousModelUrl}
               isExploded={isExploded}
               lightPosition={new THREE.Vector3(...mainLightPos)}
               opacity={1 - transitionProgress}
+              wireframeMode={wireframeMode}
             />
           )}
-          <Model
+          <ModelWithWireframe
             key={displayedModelUrl}
             url={displayedModelUrl}
             isExploded={isExploded}
             lightPosition={new THREE.Vector3(...mainLightPos)}
             opacity={transitionProgress}
+            wireframeMode={wireframeMode}
           />
         </Suspense>
 
@@ -1036,4 +1102,90 @@ export function ModelViewer({
       </Canvas>
     </div>
   )
+}
+
+function CameraController({
+  fov,
+  wireframeMode,
+  modelUrl,
+}: {
+  fov: number
+  wireframeMode: boolean
+  modelUrl: string
+}) {
+  const { camera, scene, controls } = useThree()
+
+  useEffect(() => {
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.fov = fov
+      camera.updateProjectionMatrix()
+    }
+  }, [fov, camera])
+
+  useEffect(() => {
+    const handleAutoFrame = () => {
+      const box = new THREE.Box3()
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh && obj.geometry) {
+          box.expandByObject(obj)
+        }
+      })
+
+      if (!box.isEmpty()) {
+        const center = box.getCenter(new THREE.Vector3())
+        const size = box.getSize(new THREE.Vector3())
+        const maxDim = Math.max(size.x, size.y, size.z)
+        const fovRad = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180)
+        const cameraDistance = Math.abs(maxDim / Math.sin(fovRad / 2)) * 1.5
+
+        const direction = camera.position.clone().sub(center).normalize()
+        camera.position.copy(center).add(direction.multiplyScalar(cameraDistance))
+
+        if (controls) {
+          ;(controls as any).target.copy(center)
+          ;(controls as any).update()
+        }
+      }
+    }
+
+    window.addEventListener("autoframe", handleAutoFrame)
+    return () => window.removeEventListener("autoframe", handleAutoFrame)
+  }, [camera, scene, controls])
+
+  return null
+}
+
+function ModelWithWireframe({
+  url,
+  isExploded,
+  lightPosition,
+  opacity,
+  wireframeMode,
+}: ModelProps & { wireframeMode: boolean }) {
+  const { scene } = useGLTF(url)
+
+  useEffect(() => {
+    if (!scene) return // Ensure scene is loaded before traversing
+
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((mat) => {
+            if (mat) {
+              // Check if material exists
+              mat.wireframe = wireframeMode
+            }
+          })
+        } else {
+          if (child.material) {
+            // Check if material exists
+            child.material.wireframe = wireframeMode
+          }
+        }
+      }
+    })
+  }, [scene, wireframeMode]) // Depend on scene and wireframeMode
+
+  // Pass the opacity prop to the underlying Model component
+  return <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} />
 }
