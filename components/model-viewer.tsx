@@ -660,6 +660,7 @@ export function ModelViewer({
   const [bloomEnabled, setBloomEnabled] = useState(true)
   const [autoRotate, setAutoRotate] = useState(false)
   const [materialPreset, setMaterialPreset] = useState<MaterialPreset>("default")
+  const [isOrthographic, setIsOrthographic] = useState(false)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -1002,7 +1003,9 @@ export function ModelViewer({
       else if (e.key === "l" || e.key === "L") {
         e.preventDefault()
         setBloomEnabled((prev) => !prev)
-      } else if (e.key === "s" || e.key === "S") {
+      }
+      // S key - Screenshot
+      else if (e.key === "s" || e.key === "S") {
         e.preventDefault()
         if (glRef.current) {
           try {
@@ -1021,15 +1024,22 @@ export function ModelViewer({
             console.error("[v0] Screenshot failed:", error)
           }
         }
-      } else if (e.key === "t" || e.key === "T") {
+      }
+      // T key - Toggle auto-rotate
+      else if (e.key === "t" || e.key === "T") {
         e.preventDefault()
         setAutoRotate((prev) => !prev)
-      } else if (e.key === "m" || e.key === "M") {
+      }
+      // M key - Cycle material presets
+      else if (e.key === "m" || e.key === "M") {
         e.preventDefault()
         const presets: MaterialPreset[] = ["default", "matte", "glossy", "metallic", "wood", "fabric"]
         const currentIndex = presets.indexOf(materialPreset)
         const nextIndex = (currentIndex + 1) % presets.length
         setMaterialPreset(presets[nextIndex])
+      } else if (e.key === "o" || e.key === "O") {
+        e.preventDefault()
+        setIsOrthographic((prev) => !prev)
       }
     }
 
@@ -1058,7 +1068,21 @@ export function ModelViewer({
   return (
     <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
       <Canvas
-        camera={{ position: [2.75, 5, 2.75], fov: cameraFov }}
+        camera={
+          isOrthographic
+            ? {
+                position: [2.75, 5, 2.75],
+                zoom: 100,
+                left: -10,
+                right: 10,
+                top: 10,
+                bottom: -10,
+                near: 0.1,
+                far: 1000,
+              }
+            : { position: [2.75, 5, 2.75], fov: cameraFov }
+        }
+        orthographic={isOrthographic}
         gl={{
           antialias: true,
           alpha: false,
@@ -1074,7 +1098,12 @@ export function ModelViewer({
           glRef.current = gl // Store renderer reference for screenshots
         }}
       >
-        <CameraController fov={cameraFov} wireframeMode={wireframeMode} modelUrl={displayedModelUrl} />
+        <CameraController
+          fov={cameraFov}
+          wireframeMode={wireframeMode}
+          modelUrl={displayedModelUrl}
+          isOrthographic={isOrthographic}
+        />
 
         <color attach="background" args={[sceneBackgroundColor]} />
 
@@ -1197,19 +1226,36 @@ function CameraController({
   fov,
   wireframeMode,
   modelUrl,
+  isOrthographic,
 }: {
   fov: number
   wireframeMode: boolean
   modelUrl: string
+  isOrthographic: boolean
 }) {
-  const { camera, scene, controls } = useThree()
+  const { camera, scene, controls, size } = useThree()
 
   useEffect(() => {
-    if (camera instanceof THREE.PerspectiveCamera) {
+    if (camera instanceof THREE.PerspectiveCamera && !isOrthographic) {
       camera.fov = fov
       camera.updateProjectionMatrix()
     }
-  }, [fov, camera])
+  }, [fov, camera, isOrthographic])
+
+  useEffect(() => {
+    if (camera instanceof THREE.OrthographicCamera && isOrthographic) {
+      const aspect = size.width / size.height
+      const zoom = camera.zoom
+      const height = 10 / zoom
+      const width = height * aspect
+
+      camera.left = -width
+      camera.right = width
+      camera.top = height
+      camera.bottom = -height
+      camera.updateProjectionMatrix()
+    }
+  }, [camera, size, isOrthographic])
 
   useEffect(() => {
     const handleAutoFrame = () => {
@@ -1224,11 +1270,18 @@ function CameraController({
         const center = box.getCenter(new THREE.Vector3())
         const size = box.getSize(new THREE.Vector3())
         const maxDim = Math.max(size.x, size.y, size.z)
-        const fovRad = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180)
-        const cameraDistance = Math.abs(maxDim / Math.sin(fovRad / 2)) * 1.5
 
-        const direction = camera.position.clone().sub(center).normalize()
-        camera.position.copy(center).add(direction.multiplyScalar(cameraDistance))
+        if (camera instanceof THREE.PerspectiveCamera) {
+          const fovRad = camera.fov * (Math.PI / 180)
+          const cameraDistance = Math.abs(maxDim / Math.sin(fovRad / 2)) * 1.5
+
+          const direction = camera.position.clone().sub(center).normalize()
+          camera.position.copy(center).add(direction.multiplyScalar(cameraDistance))
+        } else if (camera instanceof THREE.OrthographicCamera) {
+          // For orthographic, adjust zoom instead of distance
+          camera.zoom = 10 / maxDim
+          camera.updateProjectionMatrix()
+        }
 
         if (controls) {
           ;(controls as any).target.copy(center)
