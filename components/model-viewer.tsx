@@ -592,6 +592,13 @@ export function ModelViewer({
   const threeFingerTapTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastThreeFingerTapTimeRef = useRef(0)
 
+  const middleMouseDownRef = useRef(false)
+  const middleMouseDraggingRef = useRef(false)
+  const middleMouseStartRef = useRef<{ x: number; y: number } | null>(null)
+  const middleMouseClickCountRef = useRef(0)
+  const middleMouseClickTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastMiddleMouseClickTimeRef = useRef(0)
+
   const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
   const [previousModelUrl, setPreviousModelUrl] = useState<string | null>(null)
   const [transitionProgress, setTransitionProgress] = useState(1)
@@ -724,6 +731,104 @@ export function ModelViewer({
       window.removeEventListener("touchend", handleTouchEnd)
     }
   }, [])
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      // Middle mouse button is button 1
+      if (e.button === 1) {
+        e.preventDefault()
+        middleMouseDownRef.current = true
+        middleMouseDraggingRef.current = false
+        middleMouseStartRef.current = { x: e.clientX, y: e.clientY }
+
+        // Handle double-click for preset change
+        const now = Date.now()
+        const timeSinceLastClick = now - lastMiddleMouseClickTimeRef.current
+
+        if (timeSinceLastClick < 300) {
+          middleMouseClickCountRef.current++
+
+          if (middleMouseClickCountRef.current === 2) {
+            // Change lighting preset
+            const presets: LightingPreset[] = ["gallery", "golden-hour", "nordic", "spotlight"]
+            const currentIndex = presets.indexOf(lightingPreset)
+            const nextIndex = (currentIndex + 1) % presets.length
+            const nextPreset = presets[nextIndex]
+            setLightingPreset(nextPreset)
+
+            const preset = LIGHTING_PRESETS[nextPreset]
+            setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
+            setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
+            setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+            setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
+
+            middleMouseClickCountRef.current = 0
+          }
+
+          if (middleMouseClickTimerRef.current) {
+            clearTimeout(middleMouseClickTimerRef.current)
+          }
+
+          middleMouseClickTimerRef.current = setTimeout(() => {
+            middleMouseClickCountRef.current = 0
+          }, 300)
+        } else {
+          middleMouseClickCountRef.current = 1
+        }
+
+        lastMiddleMouseClickTimeRef.current = now
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (middleMouseDownRef.current && middleMouseStartRef.current) {
+        e.preventDefault()
+        middleMouseDraggingRef.current = true
+
+        const deltaX = (e.clientX - middleMouseStartRef.current.x) * 0.05
+        const deltaY = (e.clientY - middleMouseStartRef.current.y) * 0.05
+
+        setMainLightPos((prev) => {
+          const newPos: [number, number, number] = [prev[0] + deltaX, prev[1] - deltaY, prev[2]]
+          return newPos
+        })
+
+        setHasManualLightControl(true)
+
+        middleMouseStartRef.current = { x: e.clientX, y: e.clientY }
+      }
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 1) {
+        middleMouseDownRef.current = false
+        middleMouseDraggingRef.current = false
+        middleMouseStartRef.current = null
+      }
+    }
+
+    const handleContextMenu = (e: MouseEvent) => {
+      // Prevent context menu when middle mouse is used
+      if (middleMouseDownRef.current || middleMouseDraggingRef.current) {
+        e.preventDefault()
+      }
+    }
+
+    window.addEventListener("mousedown", handleMouseDown)
+    window.addEventListener("mousemove", handleMouseMove)
+    window.addEventListener("mouseup", handleMouseUp)
+    window.addEventListener("contextmenu", handleContextMenu)
+
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown)
+      window.removeEventListener("mousemove", handleMouseMove)
+      window.removeEventListener("mouseup", handleMouseUp)
+      window.removeEventListener("contextmenu", handleContextMenu)
+      if (middleMouseClickTimerRef.current) {
+        clearTimeout(middleMouseClickTimerRef.current)
+      }
+    }
+  }, [lightingPreset])
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const bgColor = theme === "light" ? "#ffffff" : "#000000"
