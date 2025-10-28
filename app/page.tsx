@@ -19,7 +19,8 @@ export default function Home() {
   const [chairIndex, setChairIndex] = useState(() => {
     if (typeof window === "undefined") return 0
     const hash = window.location.hash.slice(1)
-    const index = Number.parseInt(hash) || 0
+    const match = hash.match(/^chair-(\d+)$/)
+    const index = match ? Number.parseInt(match[1]) : 0
     return index
   })
 
@@ -123,14 +124,15 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.location.hash = chairIndex.toString()
+      window.location.hash = `chair-${chairIndex}`
     }
   }, [chairIndex])
 
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.slice(1)
-      const index = Number.parseInt(hash) || 0
+      const match = hash.match(/^chair-(\d+)$/)
+      const index = match ? Number.parseInt(match[1]) : 0
       if (index !== chairIndex && index >= 0 && index < chairModels.length) {
         setChairIndex(index)
       }

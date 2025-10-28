@@ -573,6 +573,7 @@ export function ModelViewer({
 }: ModelViewerProps & { theme: "light" | "dark" }) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
+  const [showGround, setShowGround] = useState(true)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -830,6 +831,34 @@ export function ModelViewer({
     }
   }, [lightingPreset])
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // G key - Toggle ground visibility
+      if (e.key === "g" || e.key === "G") {
+        e.preventDefault()
+        setShowGround((prev) => !prev)
+      }
+      // E key - Cycle through lighting presets
+      else if (e.key === "e" || e.key === "E") {
+        e.preventDefault()
+        const presets: LightingPreset[] = ["gallery", "golden-hour", "nordic", "spotlight"]
+        const currentIndex = presets.indexOf(lightingPreset)
+        const nextIndex = (currentIndex + 1) % presets.length
+        const nextPreset = presets[nextIndex]
+        setLightingPreset(nextPreset)
+
+        const preset = LIGHTING_PRESETS[nextPreset]
+        setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
+        setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
+        setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+        setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [lightingPreset])
+
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const bgColor = theme === "light" ? "#ffffff" : "#000000"
 
@@ -918,13 +947,15 @@ export function ModelViewer({
           castShadow={false}
         />
 
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-          <planeGeometry args={[100, 100]} />
-          <shadowMaterial
-            opacity={useEnhancedRendering ? (theme === "light" ? 0.5 : 0.7) : theme === "light" ? 0.3 : 0.5}
-            transparent
-          />
-        </mesh>
+        {showGround && (
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+            <planeGeometry args={[100, 100]} />
+            <shadowMaterial
+              opacity={useEnhancedRendering ? (theme === "light" ? 0.5 : 0.7) : theme === "light" ? 0.3 : 0.5}
+              transparent
+            />
+          </mesh>
+        )}
 
         <Suspense fallback={null}>
           {previousModelUrl && (

@@ -28,6 +28,11 @@ interface ChairData {
   source: string
 }
 
+interface ChairModel {
+  url: string
+  data: ChairData
+}
+
 const queryNotionDatabase = unstable_cache(
   async () => {
     let allResults: any[] = []
@@ -86,108 +91,116 @@ const queryNotionDatabase = unstable_cache(
   },
 )
 
+const getChairModelsWithData = unstable_cache(
+  async (): Promise<ChairModel[]> => {
+    try {
+      console.log("[v0] Fetching chair models with data from cache/Notion")
+
+      const data = await queryNotionDatabase()
+
+      console.log("[v0] Total pages found:", data.results.length)
+
+      const chairs: ChairModel[] = []
+
+      for (const page of data.results) {
+        const props = page.properties
+
+        const extractText = (prop: any): string => {
+          if (!prop) return ""
+          if (prop.select?.name) return prop.select.name
+          if (prop.multi_select?.[0]?.name) return prop.multi_select.map((s: any) => s.name).join(", ")
+          if (prop.rich_text?.[0]?.plain_text) return prop.rich_text[0].plain_text
+          if (prop.title?.[0]?.plain_text) return prop.title[0].plain_text
+          if (prop.number) return prop.number.toString()
+          if (prop.url) return prop.url
+          return ""
+        }
+
+        let url = props?.glb_url?.url || ""
+
+        if (!url) {
+          const files = props?.GLB?.files || []
+          url = files.length > 0 ? files[0].file?.url || files[0].external?.url || "" : ""
+        }
+
+        if (!url) continue
+
+        const name = extractText(props?.Name) || "Unknown"
+        const designer = extractText(props?.kunstnar_produsent)
+        const year = props?.år?.number?.toString() || extractText(props?.år)
+        const type = extractText(props?.objekttype) || extractText(props?.klassifikasjon) || ""
+        const period = extractText(props?.stilperiode) || ""
+        const owner = extractText(props?.eigar_samling)
+
+        const height = props?.H_mm?.number || 0
+        const width = props?.B_mm?.number || 0
+        const depth = props?.D_mm?.number || 0
+        const dimensions = { height, width, depth }
+
+        const materials =
+          extractText(props?.materiale_teknikk) ||
+          extractText(props?.materiale_teknikkar) ||
+          extractText(props?.materiale) ||
+          ""
+
+        const tags = props?.stikkord?.multi_select?.map((tag: any) => tag.name) || []
+        const notes = extractText(props?.notater)
+        const classification = extractText(props?.klassifikasjon)
+        const source = extractText(props?.kjelde)
+
+        chairs.push({
+          url,
+          data: {
+            url,
+            name,
+            designer,
+            year,
+            type,
+            period,
+            owner,
+            dimensions,
+            materials,
+            tags,
+            notes,
+            classification,
+            source,
+          },
+        })
+      }
+
+      console.log("[v0] Total chairs with GLB files:", chairs.length)
+      return chairs
+    } catch (error) {
+      console.error("[v0] Failed to load chair models:", error)
+      return []
+    }
+  },
+  ["notion-chairs-with-data"],
+  {
+    revalidate: CACHE_REVALIDATE_SECONDS,
+    tags: ["notion-data"],
+  },
+)
+
 export async function getChairModels(): Promise<string[]> {
-  try {
-    console.log("[v0] Fetching chair models from cache/Notion")
-
-    const data = await queryNotionDatabase()
-
-    console.log("[v0] Total pages found:", data.results.length)
-
-    const glbUrls = data.results
-      .map((page: any) => {
-        const glbUrl = page.properties?.glb_url?.url || null
-        if (glbUrl) {
-          return glbUrl
-        }
-
-        const files = page.properties?.GLB?.files || []
-        if (files.length > 0) {
-          return files[0].file?.url || files[0].external?.url || null
-        }
-
-        return null
-      })
-      .filter((url): url is string => url !== null)
-
-    console.log("[v0] Total GLB URLs:", glbUrls.length)
-    return glbUrls
-  } catch (error) {
-    console.error("[v0] Failed to load chair models:", error)
-    return []
-  }
+  const chairs = await getChairModelsWithData()
+  return chairs.map((chair) => chair.url)
 }
 
 export async function getChairData(index: number): Promise<ChairData | null> {
   try {
     console.log("[v0] Fetching chair data for index:", index)
 
-    const data = await queryNotionDatabase()
+    const chairs = await getChairModelsWithData()
 
-    if (index < 0 || index >= data.results.length) {
-      console.log("[v0] Index out of bounds:", index, "of", data.results.length)
+    if (index < 0 || index >= chairs.length) {
+      console.log("[v0] Index out of bounds:", index, "of", chairs.length)
       return null
     }
 
-    const page: any = data.results[index]
-    const props = page.properties
-
-    const extractText = (prop: any): string => {
-      if (!prop) return ""
-      if (prop.select?.name) return prop.select.name
-      if (prop.multi_select?.[0]?.name) return prop.multi_select.map((s: any) => s.name).join(", ")
-      if (prop.rich_text?.[0]?.plain_text) return prop.rich_text[0].plain_text
-      if (prop.title?.[0]?.plain_text) return prop.title[0].plain_text
-      if (prop.number) return prop.number.toString()
-      if (prop.url) return prop.url
-      return ""
-    }
-
-    let url = props?.glb_url?.url || ""
-
-    if (!url) {
-      const files = props?.GLB?.files || []
-      url = files.length > 0 ? files[0].file?.url || files[0].external?.url || "" : ""
-    }
-
-    const name = extractText(props?.Name) || "Unknown"
-    const designer = extractText(props?.kunstnar_produsent)
-    const year = props?.år?.number?.toString() || extractText(props?.år)
-    const type = extractText(props?.objekttype) || extractText(props?.klassifikasjon) || ""
-    const period = extractText(props?.stilperiode) || ""
-    const owner = extractText(props?.eigar_samling)
-
-    const height = props?.H_mm?.number || 0
-    const width = props?.B_mm?.number || 0
-    const depth = props?.D_mm?.number || 0
-    const dimensions = { height, width, depth }
-
-    const materials =
-      extractText(props?.materiale_teknikk) ||
-      extractText(props?.materiale_teknikkar) ||
-      extractText(props?.materiale) ||
-      ""
-
-    const tags = props?.stikkord?.multi_select?.map((tag: any) => tag.name) || []
-    const notes = extractText(props?.notater)
-    const classification = extractText(props?.klassifikasjon)
-    const source = extractText(props?.kjelde)
-
-    return {
-      url,
-      name,
-      designer,
-      year,
-      type,
-      period,
-      owner,
-      dimensions,
-      materials,
-      tags,
-      notes,
-      classification,
-      source,
-    }
+    const chairData = chairs[index].data
+    console.log("[v0] Returning chair data:", chairData.name)
+    return chairData
   } catch (error) {
     console.error("[v0] Failed to load chair data:", error)
     return null
