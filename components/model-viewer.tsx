@@ -3,6 +3,7 @@
 import { Suspense, useRef, useState, useEffect } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { OrbitControls, useGLTF, Environment } from "@react-three/drei"
+import { EffectComposer, DepthOfField, Bloom, SSAO } from "@react-three/postprocessing"
 import * as THREE from "three"
 
 interface ModelViewerProps {
@@ -38,6 +39,10 @@ interface Part {
   isDragging: boolean
   collisionMesh: THREE.Mesh | null
   grabOffset: THREE.Vector3
+  mass: number
+  momentOfInertia: number
+  lastDragPosition: THREE.Vector3
+  dragVelocityHistory: THREE.Vector3[]
 }
 
 function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
@@ -124,6 +129,10 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
             collisionMesh = directMeshes[0] as THREE.Mesh
           }
 
+          const volume = size.x * size.y * size.z
+          const mass = Math.max(0.5, volume * 10)
+          const momentOfInertia = mass * (collisionRadius * collisionRadius)
+
           explodableParts.push({
             object: obj,
             originalPosition: obj.position.clone(),
@@ -142,6 +151,10 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
             isDragging: false,
             collisionMesh,
             grabOffset: new THREE.Vector3(),
+            mass,
+            momentOfInertia,
+            lastDragPosition: new THREE.Vector3(),
+            dragVelocityHistory: [],
           })
 
           return
@@ -176,6 +189,10 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
         const distance = 0.5 + Math.random() * 0.2 + collisionRadius * 0.5
         const explodedPosition = obj.position.clone().add(direction.multiplyScalar(distance))
 
+        const volume = size.x * size.y * size.z
+        const mass = Math.max(0.5, volume * 10)
+        const momentOfInertia = mass * (collisionRadius * collisionRadius)
+
         explodableParts.push({
           object: obj,
           originalPosition: obj.position.clone(),
@@ -194,6 +211,10 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
           isDragging: false,
           collisionMesh: obj instanceof THREE.Mesh ? obj : null,
           grabOffset: new THREE.Vector3(),
+          mass,
+          momentOfInertia,
+          lastDragPosition: new THREE.Vector3(),
+          dragVelocityHistory: [],
         })
       }
 
@@ -304,27 +325,47 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
         const part = draggedPartRef.current
 
         const targetPosition = intersectionPoint.clone().sub(part.grabOffset)
-        const delta = targetPosition.clone().sub(part.object.position)
+        const currentVelocity = targetPosition.clone().sub(part.object.position)
+        part.dragVelocityHistory.push(currentVelocity.clone())
 
-        part.velocity.copy(delta).multiplyScalar(20)
+        if (part.dragVelocityHistory.length > 5) {
+          part.dragVelocityHistory.shift()
+        }
 
         part.object.position.copy(targetPosition)
         part.currentPosition.copy(targetPosition)
 
         const movementDelta = intersectionPoint.clone().sub(previousDragPositionRef.current)
+
         if (movementDelta.length() > 0.001) {
-          part.angularVelocity.x += movementDelta.y * 2
-          part.angularVelocity.y += movementDelta.x * 2
-          part.angularVelocity.z += (movementDelta.x + movementDelta.y) * 0.5
+          const leverArm = part.grabOffset.clone()
+          const force = movementDelta.clone().multiplyScalar(part.mass * 50)
+          const torque = new THREE.Vector3().crossVectors(leverArm, force)
+          const angularAcceleration = torque.divideScalar(part.momentOfInertia)
+
+          part.angularVelocity.x += angularAcceleration.x * 0.1
+          part.angularVelocity.y += angularAcceleration.y * 0.1
+          part.angularVelocity.z += angularAcceleration.z * 0.1
         }
 
+        part.lastDragPosition.copy(intersectionPoint)
         previousDragPositionRef.current.copy(intersectionPoint)
       }
     }
 
     const handlePointerUp = () => {
       if (draggedPartRef.current) {
-        draggedPartRef.current.isDragging = false
+        const part = draggedPartRef.current
+
+        if (part.dragVelocityHistory.length > 0) {
+          const avgVelocity = new THREE.Vector3()
+          part.dragVelocityHistory.forEach((v) => avgVelocity.add(v))
+          avgVelocity.divideScalar(part.dragVelocityHistory.length)
+          part.velocity.copy(avgVelocity.multiplyScalar(25 / part.mass))
+        }
+
+        part.dragVelocityHistory = []
+        part.isDragging = false
         draggedPartRef.current = null
       }
 
@@ -396,15 +437,18 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
       if (!isDragging && velocity.length() > 0.01) {
         object.position.add(velocity.clone().multiplyScalar(delta))
         currentPosition.copy(object.position)
-        velocity.multiplyScalar(0.92)
+
+        const airResistance = 0.98 - velocity.length() * 0.01
+        velocity.multiplyScalar(Math.max(0.85, airResistance))
 
         object.rotation.x += angularVelocity.x * delta
         object.rotation.y += angularVelocity.y * delta
         object.rotation.z += angularVelocity.z * delta
 
-        angularVelocity.x *= 0.92
-        angularVelocity.y *= 0.92
-        angularVelocity.z *= 0.92
+        const angularDrag = 0.96
+        angularVelocity.x *= angularDrag
+        angularVelocity.y *= angularDrag
+        angularVelocity.z *= angularDrag
 
         const targetPosition = isExploded ? explodedPosition : originalPosition
         const returnForce = targetPosition.clone().sub(currentPosition).multiplyScalar(0.05)
@@ -547,16 +591,13 @@ export function ModelViewer({
 
   useEffect(() => {
     if (modelUrl !== displayedModelUrl) {
-      // Start transition
       setPreviousModelUrl(displayedModelUrl)
       setTransitionProgress(0)
 
-      // Preload new model
       useGLTF.preload(modelUrl)
 
-      // Animate transition
       const startTime = Date.now()
-      const duration = 400 // 400ms crossfade
+      const duration = 400
 
       const animate = () => {
         const elapsed = Date.now() - startTime
@@ -567,7 +608,6 @@ export function ModelViewer({
         if (progress < 1) {
           requestAnimationFrame(animate)
         } else {
-          // Transition complete
           setDisplayedModelUrl(modelUrl)
           setPreviousModelUrl(null)
         }
@@ -688,9 +728,9 @@ export function ModelViewer({
 
   const useEnhancedRendering = performanceMode && isHighPerformanceDevice
 
-  const shadowMapSize = useEnhancedRendering ? 4096 : 2048
-  const shadowBias = useEnhancedRendering ? -0.0001 : -0.0005
-  const shadowRadius = useEnhancedRendering ? 2 : 1
+  const shadowMapSize = useEnhancedRendering ? 8192 : 1024
+  const shadowBias = useEnhancedRendering ? -0.00005 : -0.001
+  const shadowRadius = useEnhancedRendering ? 4 : 1
 
   return (
     <div className="w-full h-full relative" style={{ background: bgColor, transition: "none" }}>
@@ -700,21 +740,24 @@ export function ModelViewer({
           antialias: true,
           alpha: false,
           toneMapping: useEnhancedRendering ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping,
-          toneMappingExposure: useEnhancedRendering ? 1.2 : 1,
+          toneMappingExposure: useEnhancedRendering ? 1.5 : 1,
+          powerPreference: useEnhancedRendering ? "high-performance" : "default",
         }}
-        shadows
+        shadows={useEnhancedRendering ? "soft" : true}
         style={{ background: bgColor, transition: "none" }}
       >
         <color attach="background" args={[bgColor]} />
 
-        <Environment preset={currentPreset.environment} />
+        {!useEnhancedRendering && <Environment preset={currentPreset.environment} />}
 
-        <ambientLight intensity={currentPreset.ambientIntensity} />
+        <ambientLight
+          intensity={useEnhancedRendering ? currentPreset.ambientIntensity * 1.5 : currentPreset.ambientIntensity}
+        />
 
         <directionalLight
           ref={lightRef}
           position={mainLightPos}
-          intensity={currentPreset.mainLight.intensity}
+          intensity={useEnhancedRendering ? currentPreset.mainLight.intensity * 1.3 : currentPreset.mainLight.intensity}
           color={currentPreset.mainLight.color}
           castShadow
           shadow-mapSize-width={shadowMapSize}
@@ -726,32 +769,40 @@ export function ModelViewer({
           shadow-camera-top={15}
           shadow-camera-bottom={-15}
           shadow-bias={shadowBias}
-          shadow-normalBias={0.05}
+          shadow-normalBias={useEnhancedRendering ? 0.02 : 0.05}
           shadow-radius={shadowRadius}
         />
 
         <directionalLight
           ref={fillLightRef}
           position={fillLightPos}
-          intensity={currentPreset.fillLight.intensity}
+          intensity={useEnhancedRendering ? currentPreset.fillLight.intensity * 1.2 : currentPreset.fillLight.intensity}
           color={currentPreset.fillLight.color}
+          castShadow={useEnhancedRendering}
+          shadow-mapSize-width={useEnhancedRendering ? 4096 : 1024}
+          shadow-mapSize-height={useEnhancedRendering ? 4096 : 1024}
+          shadow-bias={shadowBias}
         />
 
         <spotLight
           ref={spotLightRef}
           position={spotLightPos}
-          intensity={currentPreset.spotLight.intensity}
+          intensity={useEnhancedRendering ? currentPreset.spotLight.intensity * 1.5 : currentPreset.spotLight.intensity}
           color={currentPreset.spotLight.color}
           angle={0.6}
           penumbra={1}
           castShadow={useEnhancedRendering}
-          shadow-mapSize-width={useEnhancedRendering ? 2048 : 1024}
-          shadow-mapSize-height={useEnhancedRendering ? 2048 : 1024}
+          shadow-mapSize-width={useEnhancedRendering ? 4096 : 1024}
+          shadow-mapSize-height={useEnhancedRendering ? 4096 : 1024}
+          shadow-bias={shadowBias}
         />
 
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
           <planeGeometry args={[100, 100]} />
-          <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
+          <shadowMaterial
+            opacity={useEnhancedRendering ? (theme === "light" ? 0.4 : 0.6) : theme === "light" ? 0.3 : 0.5}
+            transparent
+          />
         </mesh>
 
         <Suspense fallback={null}>
@@ -783,6 +834,14 @@ export function ModelViewer({
           minDistance={1}
           maxDistance={15}
         />
+
+        {useEnhancedRendering && (
+          <EffectComposer>
+            <DepthOfField focusDistance={0.02} focalLength={0.05} bokehScale={3} height={480} />
+            <SSAO samples={31} radius={0.1} intensity={40} luminanceInfluence={0.6} color="black" />
+            <Bloom intensity={0.3} luminanceThreshold={0.9} luminanceSmoothing={0.9} />
+          </EffectComposer>
+        )}
       </Canvas>
     </div>
   )
