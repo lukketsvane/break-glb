@@ -25,30 +25,45 @@ interface ChairData {
 }
 
 async function queryNotionDatabase() {
-  const response = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${NOTION_API_KEY}`,
-      "Notion-Version": NOTION_VERSION,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      sorts: [
-        {
-          property: "Name",
-          direction: "ascending",
-        },
-      ],
-    }),
-  })
+  let allResults: any[] = []
+  let hasMore = true
+  let startCursor: string | undefined = undefined
 
-  if (!response.ok) {
-    const error = await response.text()
-    console.error("[v0] Notion API error:", error)
-    throw new Error(`Notion API error: ${response.status}`)
+  while (hasMore) {
+    const response = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${NOTION_API_KEY}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sorts: [
+          {
+            property: "Name",
+            direction: "ascending",
+          },
+        ],
+        start_cursor: startCursor,
+        page_size: 100, // Maximum allowed by Notion API
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      console.error("[v0] Notion API error:", error)
+      throw new Error(`Notion API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    allResults = allResults.concat(data.results)
+    hasMore = data.has_more
+    startCursor = data.next_cursor
+
+    console.log("[v0] Fetched page with", data.results.length, "entries. Total so far:", allResults.length)
   }
 
-  return response.json()
+  return { results: allResults }
 }
 
 export async function getChairModels(): Promise<string[]> {
