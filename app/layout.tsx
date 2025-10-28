@@ -4,12 +4,18 @@ import type React from "react"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
-import { Geist, Geist_Mono, Geist as V0_Font_Geist, Geist_Mono as V0_Font_Geist_Mono, Source_Serif_4 as V0_Font_Source_Serif_4 } from 'next/font/google'
+import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google"
 
 // Initialize fonts
-const _geist = V0_Font_Geist({ subsets: ['latin'], weight: ["100","200","300","400","500","600","700","800","900"] })
-const _geistMono = V0_Font_Geist_Mono({ subsets: ['latin'], weight: ["100","200","300","400","500","600","700","800","900"] })
-const _sourceSerif_4 = V0_Font_Source_Serif_4({ subsets: ['latin'], weight: ["200","300","400","500","600","700","800","900"] })
+const _geist = Geist({ subsets: ["latin"], weight: ["100", "200", "300", "400", "500", "600", "700", "800", "900"] })
+const _geistMono = Geist_Mono({
+  subsets: ["latin"],
+  weight: ["100", "200", "300", "400", "500", "600", "700", "800", "900"],
+})
+const _sourceSerif_4 = Source_Serif_4({
+  subsets: ["latin"],
+  weight: ["200", "300", "400", "500", "600", "700", "800", "900"],
+})
 
 export const metadata: Metadata = {
   title: "Chair Exploder",
@@ -27,6 +33,28 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Chair Exploder",
+    startupImage: [
+      {
+        url: "/icon-512x512.png",
+        media: "(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/icon-512x512.png",
+        media: "(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/icon-512x512.png",
+        media: "(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/icon-512x512.png",
+        media: "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      {
+        url: "/icon-512x512.png",
+        media: "(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)",
+      },
+    ],
   },
   icons: {
     icon: [
@@ -38,6 +66,10 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+  },
 }
 
 export default function RootLayout({
@@ -47,6 +79,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Chair Exploder" />
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
       <body className={`font-sans antialiased`}>
         {children}
         <Analytics />

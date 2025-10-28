@@ -8,6 +8,8 @@ import * as THREE from "three"
 interface ModelViewerProps {
   modelUrl: string
   isExploded: boolean
+  chairIndex: number
+  theme: "light" | "dark"
 }
 
 interface ModelProps {
@@ -65,6 +67,20 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
 
   useEffect(() => {
     if (!scene) return
+
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+        console.log("[v0] Enabled shadows on mesh:", child.name)
+      }
+    })
+
+    const box = new THREE.Box3().setFromObject(scene)
+    const minY = box.min.y
+    const size = box.getSize(new THREE.Vector3())
+    scene.position.y = -minY // Lift the model so its bottom is at y=0
+    console.log("[v0] Model positioned on ground, minY offset:", -minY, "Model size:", size)
 
     const explodableParts: Part[] = []
 
@@ -183,6 +199,10 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
 
     findParts(scene)
     setParts(explodableParts)
+
+    // Reset animation state for new model
+    hasExplodedRef.current = false
+    isAnimatingRef.current = false
   }, [scene])
 
   useEffect(() => {
@@ -435,11 +455,136 @@ function LoadingFallback() {
   return null
 }
 
-export function ModelViewer({ modelUrl, isExploded }: ModelViewerProps) {
+type LightingPreset = "studio" | "dramatic" | "soft" | "colorful"
+
+const LIGHTING_PRESETS = {
+  studio: {
+    environment: "studio" as const,
+    ambientIntensity: 0.3,
+    mainLight: { basePosition: [10, 10, 5], intensity: 1.2, color: "#ffffff" },
+    fillLight: { basePosition: [-10, -10, -5], intensity: 0.4, color: "#ffffff" },
+    spotLight: { basePosition: [0, 10, 0], intensity: 0.5, color: "#ffffff" },
+  },
+  dramatic: {
+    environment: "night" as const,
+    ambientIntensity: 0.1,
+    mainLight: { basePosition: [15, 5, 0], intensity: 2.5, color: "#ff8844" },
+    fillLight: { basePosition: [-5, -5, -10], intensity: 0.2, color: "#4488ff" },
+    spotLight: { basePosition: [0, 15, 5], intensity: 1.2, color: "#ffffff" },
+  },
+  soft: {
+    environment: "sunset" as const,
+    ambientIntensity: 0.6,
+    mainLight: { basePosition: [5, 8, 8], intensity: 0.8, color: "#fff5e6" },
+    fillLight: { basePosition: [-8, 5, -5], intensity: 0.6, color: "#e6f0ff" },
+    spotLight: { basePosition: [0, 12, 0], intensity: 0.3, color: "#fff5e6" },
+  },
+  colorful: {
+    environment: "city" as const,
+    ambientIntensity: 0.4,
+    mainLight: { basePosition: [8, 10, 8], intensity: 1.5, color: "#ff44ff" },
+    fillLight: { basePosition: [-8, -8, -8], intensity: 1.0, color: "#44ffff" },
+    spotLight: { basePosition: [0, 10, 0], intensity: 0.8, color: "#ffff44" },
+  },
+}
+
+function randomizeLightPosition(basePosition: number[]): [number, number, number] {
+  const [x, y, z] = basePosition
+  const randomOffset = () => (Math.random() - 0.5) * 6
+  return [x + randomOffset(), y + randomOffset(), z + randomOffset()]
+}
+
+export function ModelViewer({
+  modelUrl,
+  isExploded,
+  chairIndex,
+  theme,
+}: ModelViewerProps & { theme: "light" | "dark" }) {
+  const [lightingPreset, setLightingPreset] = useState<LightingPreset>("studio")
   const [lightPosition, setLightPosition] = useState(new THREE.Vector3(10, 10, 5))
+
+  const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([10, 10, 5])
+  const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-10, -10, -5])
+  const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 10, 0])
+
   const lightRef = useRef<THREE.DirectionalLight>(null)
+  const fillLightRef = useRef<THREE.DirectionalLight>(null)
+  const spotLightRef = useRef<THREE.SpotLight>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
+
+  const threeFingerTapCountRef = useRef(0)
+  const threeFingerTapTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastThreeFingerTapTimeRef = useRef(0)
+
+  const [currentModelUrl, setCurrentModelUrl] = useState(modelUrl)
+
+  useEffect(() => {
+    if (modelUrl !== currentModelUrl) {
+      setCurrentModelUrl(modelUrl)
+    }
+  }, [modelUrl, currentModelUrl])
+
+  useEffect(() => {
+    const handleThreeFingerTap = (e: TouchEvent) => {
+      if (e.touches.length === 3) {
+        const now = Date.now()
+        const timeSinceLastTap = now - lastThreeFingerTapTimeRef.current
+
+        if (timeSinceLastTap < 300) {
+          // Double tap detected with three fingers
+          threeFingerTapCountRef.current++
+
+          if (threeFingerTapCountRef.current === 2) {
+            // Cycle to next preset
+            const presets: LightingPreset[] = ["studio", "dramatic", "soft", "colorful"]
+            const currentIndex = presets.indexOf(lightingPreset)
+            const nextIndex = (currentIndex + 1) % presets.length
+            const nextPreset = presets[nextIndex]
+            setLightingPreset(nextPreset)
+
+            const preset = LIGHTING_PRESETS[nextPreset]
+            setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
+            setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
+            setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+
+            console.log("[v0] Switched to lighting preset:", nextPreset, "with randomized directions")
+
+            threeFingerTapCountRef.current = 0
+          }
+
+          if (threeFingerTapTimerRef.current) {
+            clearTimeout(threeFingerTapTimerRef.current)
+          }
+
+          threeFingerTapTimerRef.current = setTimeout(() => {
+            threeFingerTapCountRef.current = 0
+          }, 300)
+        } else {
+          threeFingerTapCountRef.current = 1
+        }
+
+        lastThreeFingerTapTimeRef.current = now
+        e.preventDefault()
+      }
+    }
+
+    window.addEventListener("touchstart", handleThreeFingerTap, { passive: false })
+
+    return () => {
+      window.removeEventListener("touchstart", handleThreeFingerTap)
+      if (threeFingerTapTimerRef.current) {
+        clearTimeout(threeFingerTapTimerRef.current)
+      }
+    }
+  }, [lightingPreset])
+
+  useEffect(() => {
+    const preset = LIGHTING_PRESETS[lightingPreset]
+    setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
+    setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
+    setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+  }, [lightingPreset])
 
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
@@ -487,29 +632,64 @@ export function ModelViewer({ modelUrl, isExploded }: ModelViewerProps) {
     }
   }, [])
 
+  const currentPreset = LIGHTING_PRESETS[lightingPreset]
+  const bgColor = theme === "light" ? "#ffffff" : "#000000"
+
   return (
-    <div className="w-full h-full bg-black">
+    <div className="w-full h-full" style={{ background: bgColor }}>
       <Canvas
         camera={{ position: [5, 5, 5], fov: 50 }}
         gl={{ antialias: true, alpha: false }}
         shadows
-        style={{ background: "#000000" }}
+        style={{ background: bgColor }}
       >
-        <Environment preset="studio" />
-        <ambientLight intensity={0.3} />
+        <color attach="background" args={[bgColor]} />
+
+        <Environment preset={currentPreset.environment} />
+
+        <ambientLight intensity={currentPreset.ambientIntensity} />
+
         <directionalLight
           ref={lightRef}
-          position={[lightPosition.x, lightPosition.y, lightPosition.z]}
-          intensity={1.2}
+          position={mainLightPos}
+          intensity={currentPreset.mainLight.intensity}
+          color={currentPreset.mainLight.color}
           castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          shadow-mapSize-width={4096}
+          shadow-mapSize-height={4096}
+          shadow-camera-far={50}
+          shadow-camera-near={0.1}
+          shadow-camera-left={-15}
+          shadow-camera-right={15}
+          shadow-camera-top={15}
+          shadow-camera-bottom={-15}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.05}
         />
-        <directionalLight position={[-10, -10, -5]} intensity={0.4} />
-        <spotLight position={[0, 10, 0]} intensity={0.5} angle={0.6} penumbra={1} castShadow />
+
+        <directionalLight
+          ref={fillLightRef}
+          position={fillLightPos}
+          intensity={currentPreset.fillLight.intensity}
+          color={currentPreset.fillLight.color}
+        />
+
+        <spotLight
+          ref={spotLightRef}
+          position={spotLightPos}
+          intensity={currentPreset.spotLight.intensity}
+          color={currentPreset.spotLight.color}
+          angle={0.6}
+          penumbra={1}
+        />
+
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+          <planeGeometry args={[100, 100]} />
+          <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
+        </mesh>
 
         <Suspense fallback={<LoadingFallback />}>
-          <Model url={modelUrl} isExploded={isExploded} lightPosition={lightPosition} />
+          <Model key={currentModelUrl} url={currentModelUrl} isExploded={isExploded} lightPosition={lightPosition} />
         </Suspense>
 
         <OrbitControls

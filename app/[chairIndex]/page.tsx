@@ -1,66 +1,109 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useCallback, useRef, useEffect } from "react"
-import { useRouter, useParams } from "next/navigation"
-import { Zap, ChevronLeft, ChevronRight } from "lucide-react"
+import { Zap, ChevronLeft, ChevronRight, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ModelViewer } from "@/components/model-viewer"
+import { ChairInfoOverlay } from "@/components/chair-info-overlay"
 import { useGLTF } from "@react-three/drei"
+import { useRouter, useParams } from "next/navigation"
+import { getChairModels, getChairData } from "../actions"
 
-const CHAIR_MODELS = [
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/6464645f-1179-46a4-90b6-94897afb1f91-1760737085523.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/69115c45-d12a-4d4c-af31-52760c6e9e2e-1760730869598.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/7d2f0026-90d2-49a6-9fcd-61a702e5b2a7-1760736571409.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/83c7c65e-c1a8-4ac8-bc05-b5b309537958-1760736255048.glb",
-  "https://uzwuhofdakrvvjvq.public.blob.vercel-storage.com/glb/d3a4f7e5-d9a8-4367-ba3f-e7f36d5e4181-1760730545612.glb",
-]
-
-const NAVIGATION_COOLDOWN = 300 // milliseconds between navigations
+const isMobile = () => {
+  if (typeof window === "undefined") return false
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768
+}
 
 export default function ChairPage() {
   const router = useRouter()
   const params = useParams()
   const chairIndex = Number.parseInt(params.chairIndex as string) || 0
 
+  const [chairModels, setChairModels] = useState<string[]>([])
   const [isExploded, setIsExploded] = useState(false)
   const [showInfo, setShowInfo] = useState(true)
-  const [isNavigating, setIsNavigating] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStartX, setDragStartX] = useState(0)
+  const [showInfoOverlay, setShowInfoOverlay] = useState(false)
+  const [chairData, setChairData] = useState<any>(null)
+  const [autoBreakEnabled, setAutoBreakEnabled] = useState(false)
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark"
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"
+  })
 
   const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const explosionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const lastNavigationRef = useRef<number>(0)
-  const navigationCooldownRef = useRef<NodeJS.Timeout | null>(null)
+  const navRef = useRef<HTMLDivElement>(null)
+  const lastTapTimeRef = useRef<number>(0)
 
   useEffect(() => {
-    if (chairIndex < 0 || chairIndex >= CHAIR_MODELS.length) {
-      router.replace("/0")
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: light)")
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setTheme(e.matches ? "light" : "dark")
     }
-  }, [chairIndex, router])
 
-  const modelUrl = CHAIR_MODELS[chairIndex] || CHAIR_MODELS[0]
+    mediaQuery.addEventListener("change", handleChange)
 
-  useEffect(() => {
-    // Preload first 5 chairs immediately
-    CHAIR_MODELS.slice(0, 5).forEach((url) => {
-      useGLTF.preload(url)
-    })
-
-    // Preload remaining chairs after delay
-    const timer = setTimeout(() => {
-      CHAIR_MODELS.slice(5).forEach((url) => {
-        useGLTF.preload(url)
-      })
-    }, 1000)
-
-    return () => clearTimeout(timer)
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange)
+    }
   }, [])
 
   useEffect(() => {
+    getChairModels().then((models) => {
+      if (models.length > 0) {
+        setChairModels(models)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    getChairData(chairIndex).then((data) => {
+      setChairData(data)
+    })
+  }, [chairIndex])
+
+  useEffect(() => {
+    if (chairModels.length === 0) return
+
+    const mobile = isMobile()
+    const currentModel = chairModels[chairIndex]
+
+    if (!currentModel) return
+
+    useGLTF.preload(currentModel)
+
+    const preloadRange = mobile ? 1 : 3
+
+    setTimeout(
+      () => {
+        for (let i = 1; i <= preloadRange; i++) {
+          const prevIndex = chairIndex - i
+          const nextIndex = chairIndex + i
+
+          if (prevIndex >= 0 && chairModels[prevIndex]) {
+            useGLTF.preload(chairModels[prevIndex])
+          }
+          if (nextIndex < chairModels.length && chairModels[nextIndex]) {
+            useGLTF.preload(chairModels[nextIndex])
+          }
+        }
+      },
+      mobile ? 500 : 100,
+    )
+  }, [chairIndex, chairModels])
+
+  useEffect(() => {
+    if (!autoBreakEnabled) return
+
     if (explosionTimeoutRef.current) {
       clearTimeout(explosionTimeoutRef.current)
     }
 
-    setIsExploded(false)
     explosionTimeoutRef.current = setTimeout(() => {
       setIsExploded(true)
       setShowInfo(true)
@@ -71,7 +114,7 @@ export default function ChairPage() {
         clearTimeout(explosionTimeoutRef.current)
       }
     }
-  }, [chairIndex])
+  }, [chairIndex, autoBreakEnabled])
 
   useEffect(() => {
     if (showInfo) {
@@ -90,84 +133,188 @@ export default function ChairPage() {
   }, [showInfo, isExploded, chairIndex])
 
   const navigateToChair = useCallback(
-    (newIndex: number) => {
-      const now = Date.now()
-      const timeSinceLastNav = now - lastNavigationRef.current
-
-      // Prevent navigation if still in cooldown
-      if (timeSinceLastNav < NAVIGATION_COOLDOWN) {
-        console.log("[v0] Navigation blocked - cooldown active")
-        return
-      }
-
-      // Clear any pending cooldown
-      if (navigationCooldownRef.current) {
-        clearTimeout(navigationCooldownRef.current)
-      }
-
-      lastNavigationRef.current = now
-      setIsNavigating(true)
+    (index: number) => {
+      if (index < 0 || index >= chairModels.length) return
+      router.push(`/${index}`)
       setShowInfo(true)
-
-      // Navigate to new route
-      router.push(`/${newIndex}`)
-
-      // Reset navigating state after cooldown
-      navigationCooldownRef.current = setTimeout(() => {
-        setIsNavigating(false)
-      }, NAVIGATION_COOLDOWN)
     },
-    [router],
+    [chairModels.length, router],
   )
 
-  const handlePreviousChair = useCallback(() => {
-    if (isNavigating) return
-    const newIndex = chairIndex === 0 ? CHAIR_MODELS.length - 1 : chairIndex - 1
+  const handlePrevious = useCallback(() => {
+    const newIndex = chairIndex === 0 ? chairModels.length - 1 : chairIndex - 1
     navigateToChair(newIndex)
-  }, [chairIndex, isNavigating, navigateToChair])
+  }, [chairIndex, chairModels.length, navigateToChair])
 
-  const handleNextChair = useCallback(() => {
-    if (isNavigating) return
-    const newIndex = chairIndex === CHAIR_MODELS.length - 1 ? 0 : chairIndex + 1
+  const handleNext = useCallback(() => {
+    const newIndex = chairIndex === chairModels.length - 1 ? 0 : chairIndex + 1
     navigateToChair(newIndex)
-  }, [chairIndex, isNavigating, navigateToChair])
+  }, [chairIndex, chairModels.length, navigateToChair])
 
-  const totalDots = Math.min(10, CHAIR_MODELS.length)
-  const activeDot = Math.floor((chairIndex * (totalDots - 1)) / (CHAIR_MODELS.length - 1))
+  const getVisibleDots = () => {
+    const totalChairs = chairModels.length
+    const maxDots = Math.min(10, totalChairs)
+
+    if (totalChairs <= maxDots) {
+      return Array.from({ length: totalChairs }, (_, i) => i)
+    }
+
+    const activeDotPosition = Math.floor((chairIndex / (totalChairs - 1)) * (maxDots - 1))
+
+    return { maxDots, activeDotPosition, totalChairs }
+  }
+
+  const dotInfo = getVisibleDots()
+  const visibleDots = Array.isArray(dotInfo) ? dotInfo : Array.from({ length: dotInfo.maxDots }, (_, i) => i)
+  const activeDotPosition = Array.isArray(dotInfo) ? chairIndex : dotInfo.activeDotPosition
+
+  const handleDotPointerDown = (e: React.PointerEvent, index: number) => {
+    if (Array.isArray(dotInfo)) {
+      navigateToChair(index)
+    } else {
+      setIsDragging(true)
+      setDragStartX(e.clientX)
+      const targetIndex = Math.round((index / (dotInfo.maxDots - 1)) * (dotInfo.totalChairs - 1))
+      navigateToChair(targetIndex)
+    }
+  }
+
+  const handleDotPointerMove = (e: React.PointerEvent) => {
+    if (!isDragging || !navRef.current || Array.isArray(dotInfo)) return
+
+    const rect = navRef.current.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const percentage = Math.max(0, Math.min(1, x / rect.width))
+    const targetIndex = Math.round(percentage * (dotInfo.totalChairs - 1))
+
+    if (targetIndex !== chairIndex) {
+      navigateToChair(targetIndex)
+    }
+  }
+
+  const handleDotPointerUp = () => {
+    setIsDragging(false)
+  }
+
+  const handleExplodeToggle = () => {
+    const now = Date.now()
+    const timeSinceLastTap = now - lastTapTimeRef.current
+
+    // Double-tap detected (within 300ms)
+    if (timeSinceLastTap < 300) {
+      setAutoBreakEnabled(!autoBreakEnabled)
+      setShowInfo(true)
+      console.log("[v0] Auto-break toggled:", !autoBreakEnabled)
+    } else {
+      // Single tap - toggle explosion
+      setIsExploded(!isExploded)
+      setShowInfo(true)
+    }
+
+    lastTapTimeRef.current = now
+  }
+
+  const handleThemeToggle = () => {
+    setTheme(theme === "light" ? "dark" : "light")
+  }
+
+  if (chairModels.length === 0) {
+    return (
+      <div className="h-dvh w-screen bg-black flex items-center justify-center">
+        <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+      </div>
+    )
+  }
+
+  const modelUrl = chairModels[chairIndex]
+
+  if (!modelUrl && chairModels.length > 0) {
+    router.push("/0")
+    return null
+  }
 
   return (
-    <div className="h-dvh w-screen bg-black relative overflow-hidden">
-      <div className="h-full w-full relative bg-black">
-        <ModelViewer key={chairIndex} modelUrl={modelUrl} isExploded={isExploded} />
+    <div
+      className="h-dvh w-screen relative overflow-hidden"
+      style={{ background: theme === "light" ? "#ffffff" : "#000000" }}
+    >
+      <div className="h-full w-full relative">
+        <ModelViewer modelUrl={modelUrl} isExploded={isExploded} chairIndex={chairIndex} theme={theme} />
 
-        <div
-          className={`absolute top-6 right-6 transition-opacity duration-500 ${showInfo ? "opacity-30" : "opacity-0"}`}
-        >
-          <div className="w-2 h-2 rounded-full bg-white" />
+        <div className="absolute top-6 right-6">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowInfoOverlay(!showInfoOverlay)}
+            className={`rounded-full w-10 h-10 transition-all ${
+              theme === "light"
+                ? showInfoOverlay
+                  ? "bg-black/20 text-black"
+                  : "text-black/60 hover:text-black hover:bg-black/10"
+                : showInfoOverlay
+                  ? "bg-white/20 text-white"
+                  : "text-white/60 hover:text-white hover:bg-white/10"
+            }`}
+          >
+            <Info className="w-5 h-5" />
+          </Button>
         </div>
 
+        <ChairInfoOverlay
+          data={chairData}
+          isOpen={showInfoOverlay}
+          onClose={() => setShowInfoOverlay(false)}
+          theme={theme}
+          onThemeToggle={handleThemeToggle}
+        />
+
         <div className="absolute bottom-0 left-0 right-0 pb-[max(2rem,env(safe-area-inset-bottom))] flex justify-center">
-          <div className="flex items-center gap-3 bg-black/80 backdrop-blur-xl border border-white/10 rounded-full px-3 py-3 shadow-2xl">
+          <div
+            className={`flex items-center gap-3 backdrop-blur-xl border rounded-full px-3 py-3 shadow-2xl ${
+              theme === "light" ? "bg-white/80 border-black/10" : "bg-black/80 border-white/10"
+            }`}
+          >
             <Button
               variant="ghost"
               size="icon"
-              onClick={handlePreviousChair}
-              disabled={isNavigating}
-              className="rounded-full w-10 h-10 text-white hover:bg-white/10 transition-all active:scale-95 disabled:opacity-50"
+              onClick={handlePrevious}
+              className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
+                theme === "light" ? "text-black hover:bg-black/10" : "text-white hover:bg-white/10"
+              }`}
             >
               <ChevronLeft className="w-5 h-5" />
             </Button>
 
-            <div className="flex items-center gap-1 px-2">
-              {Array.from({ length: totalDots }).map((_, index) => {
-                const isEdge = index === 0 || index === totalDots - 1
-                const opacity = isEdge && CHAIR_MODELS.length > totalDots ? "opacity-40" : "opacity-100"
+            <div
+              ref={navRef}
+              className="flex items-center gap-1 px-2 cursor-pointer touch-none"
+              onPointerDown={(e) => {
+                const rect = navRef.current?.getBoundingClientRect()
+                if (!rect) return
+                const x = e.clientX - rect.left
+                const index = Math.floor((x / rect.width) * visibleDots.length)
+                handleDotPointerDown(e, index)
+              }}
+              onPointerMove={handleDotPointerMove}
+              onPointerUp={handleDotPointerUp}
+              onPointerCancel={handleDotPointerUp}
+            >
+              {visibleDots.map((_, index) => {
+                const isActive = index === activeDotPosition
+                const isEdge = index === 0 || index === visibleDots.length - 1
+                const opacity = isEdge && !Array.isArray(dotInfo) ? "opacity-30" : "opacity-100"
 
                 return (
                   <div
                     key={index}
-                    className={`w-1.5 h-1.5 rounded-full transition-all ${opacity} ${
-                      index === activeDot ? "bg-white w-4" : "bg-white/30"
+                    className={`h-1.5 rounded-full transition-all ${opacity} ${
+                      theme === "light"
+                        ? isActive
+                          ? "bg-black w-4"
+                          : "bg-black/30 w-1.5"
+                        : isActive
+                          ? "bg-white w-4"
+                          : "bg-white/30 w-1.5"
                     }`}
                   />
                 )
@@ -177,25 +324,29 @@ export default function ChairPage() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={handleNextChair}
-              disabled={isNavigating}
-              className="rounded-full w-10 h-10 text-white hover:bg-white/10 transition-all active:scale-95 disabled:opacity-50"
+              onClick={handleNext}
+              className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
+                theme === "light" ? "text-black hover:bg-black/10" : "text-white hover:bg-white/10"
+              }`}
             >
               <ChevronRight className="w-5 h-5" />
             </Button>
 
-            <div className="w-px h-8 bg-white/10" />
+            <div className={`w-px h-8 ${theme === "light" ? "bg-black/10" : "bg-white/10"}`} />
 
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => {
-                setIsExploded(!isExploded)
-                setShowInfo(true)
-              }}
+              onClick={handleExplodeToggle}
               className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
-                isExploded ? "bg-white/20 text-white" : "text-white hover:bg-white/10"
-              }`}
+                theme === "light"
+                  ? isExploded
+                    ? "bg-black/20 text-black"
+                    : "text-black hover:bg-black/10"
+                  : isExploded
+                    ? "bg-white/20 text-white"
+                    : "text-white hover:bg-white/10"
+              } ${autoBreakEnabled ? "ring-2 ring-red-500/50" : ""}`}
             >
               <Zap className="w-5 h-5" />
             </Button>
