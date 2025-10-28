@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { ModelViewer } from "@/components/model-viewer"
 import { ChairInfoOverlay } from "@/components/chair-info-overlay"
 import { useGLTF } from "@react-three/drei"
-import { useRouter, useParams } from "next/navigation"
+import { useParams } from "next/navigation"
 import { getChairModels, getChairData } from "../actions"
 
 const isMobile = () => {
@@ -17,10 +17,10 @@ const isMobile = () => {
 }
 
 export default function ChairPage() {
-  const router = useRouter()
   const params = useParams()
-  const chairIndex = Number.parseInt(params.chairIndex as string) || 0
+  const initialChairIndex = Number.parseInt(params.chairIndex as string) || 0
 
+  const [chairIndex, setChairIndex] = useState(initialChairIndex)
   const [chairModels, setChairModels] = useState<string[]>([])
   const [isExploded, setIsExploded] = useState(false)
   const [showInfo, setShowInfo] = useState(true)
@@ -65,6 +65,13 @@ export default function ChairPage() {
     getChairData(chairIndex).then((data) => {
       setChairData(data)
     })
+  }, [chairIndex])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const newUrl = `/${chairIndex}`
+      window.history.replaceState({ chairIndex }, "", newUrl)
+    }
   }, [chairIndex])
 
   useEffect(() => {
@@ -135,10 +142,10 @@ export default function ChairPage() {
   const navigateToChair = useCallback(
     (index: number) => {
       if (index < 0 || index >= chairModels.length) return
-      router.push(`/${index}`)
+      setChairIndex(index)
       setShowInfo(true)
     },
-    [chairModels.length, router],
+    [chairModels.length],
   )
 
   const handlePrevious = useCallback(() => {
@@ -204,7 +211,6 @@ export default function ChairPage() {
     if (timeSinceLastTap < 300) {
       setAutoBreakEnabled(!autoBreakEnabled)
       setShowInfo(true)
-      console.log("[v0] Auto-break toggled:", !autoBreakEnabled)
     } else {
       // Single tap - toggle explosion
       setIsExploded(!isExploded)
@@ -229,7 +235,7 @@ export default function ChairPage() {
   const modelUrl = chairModels[chairIndex]
 
   if (!modelUrl && chairModels.length > 0) {
-    router.push("/0")
+    setChairIndex(0)
     return null
   }
 

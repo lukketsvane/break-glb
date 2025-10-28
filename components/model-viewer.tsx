@@ -513,33 +513,22 @@ export function ModelViewer({
   const lastThreeFingerTapTimeRef = useRef(0)
 
   const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
+  const [isTransitioning, setIsTransitioning] = useState(false)
 
   useEffect(() => {
     if (modelUrl !== displayedModelUrl) {
-      // Preload the new model
+      setIsTransitioning(true)
       useGLTF.preload(modelUrl)
 
-      // Wait for model to be fully loaded before switching
-      const checkInterval = setInterval(() => {
-        try {
-          const cached = (useGLTF as any).cache.get(modelUrl)
-          if (cached) {
-            clearInterval(checkInterval)
-            setDisplayedModelUrl(modelUrl)
-          }
-        } catch (e) {
-          // Model not ready yet, keep waiting
-        }
-      }, 50)
-
-      const fallbackTimeout = setTimeout(() => {
-        clearInterval(checkInterval)
+      const transitionTimeout = setTimeout(() => {
         setDisplayedModelUrl(modelUrl)
-      }, 2000)
+        setTimeout(() => {
+          setIsTransitioning(false)
+        }, 50)
+      }, 200)
 
       return () => {
-        clearInterval(checkInterval)
-        clearTimeout(fallbackTimeout)
+        clearTimeout(transitionTimeout)
       }
     }
   }, [modelUrl, displayedModelUrl])
@@ -651,78 +640,80 @@ export function ModelViewer({
   const bgColor = theme === "light" ? "#ffffff" : "#000000"
 
   return (
-    <div className="w-full h-full" style={{ background: bgColor, transition: "none" }}>
-      <Canvas
-        camera={{ position: [2.75, 5, 2.75], fov: 50 }}
-        gl={{ antialias: true, alpha: false }}
-        shadows
-        style={{ background: bgColor, transition: "none" }}
-      >
-        <color attach="background" args={[bgColor]} />
+    <div className="w-full h-full relative" style={{ background: bgColor, transition: "none" }}>
+      <div className="w-full h-full transition-opacity duration-200" style={{ opacity: isTransitioning ? 0 : 1 }}>
+        <Canvas
+          camera={{ position: [2.75, 5, 2.75], fov: 50 }}
+          gl={{ antialias: true, alpha: false }}
+          shadows
+          style={{ background: bgColor, transition: "none" }}
+        >
+          <color attach="background" args={[bgColor]} />
 
-        <Environment preset={currentPreset.environment} />
+          <Environment preset={currentPreset.environment} />
 
-        <ambientLight intensity={currentPreset.ambientIntensity} />
+          <ambientLight intensity={currentPreset.ambientIntensity} />
 
-        <directionalLight
-          ref={lightRef}
-          position={mainLightPos}
-          intensity={currentPreset.mainLight.intensity}
-          color={currentPreset.mainLight.color}
-          castShadow
-          shadow-mapSize-width={4096}
-          shadow-mapSize-height={4096}
-          shadow-camera-far={50}
-          shadow-camera-near={0.1}
-          shadow-camera-left={-15}
-          shadow-camera-right={15}
-          shadow-camera-top={15}
-          shadow-camera-bottom={-15}
-          shadow-bias={-0.0005}
-          shadow-normalBias={0.05}
-        />
-
-        <directionalLight
-          ref={fillLightRef}
-          position={fillLightPos}
-          intensity={currentPreset.fillLight.intensity}
-          color={currentPreset.fillLight.color}
-        />
-
-        <spotLight
-          ref={spotLightRef}
-          position={spotLightPos}
-          intensity={currentPreset.spotLight.intensity}
-          color={currentPreset.spotLight.color}
-          angle={0.6}
-          penumbra={1}
-        />
-
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-          <planeGeometry args={[100, 100]} />
-          <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
-        </mesh>
-
-        <Suspense fallback={null}>
-          <Model
-            key={displayedModelUrl}
-            url={displayedModelUrl}
-            isExploded={isExploded}
-            lightPosition={lightPosition}
+          <directionalLight
+            ref={lightRef}
+            position={mainLightPos}
+            intensity={currentPreset.mainLight.intensity}
+            color={currentPreset.mainLight.color}
+            castShadow
+            shadow-mapSize-width={4096}
+            shadow-mapSize-height={4096}
+            shadow-camera-far={50}
+            shadow-camera-near={0.1}
+            shadow-camera-left={-15}
+            shadow-camera-right={15}
+            shadow-camera-top={15}
+            shadow-camera-bottom={-15}
+            shadow-bias={-0.0005}
+            shadow-normalBias={0.05}
           />
-        </Suspense>
 
-        <OrbitControls
-          makeDefault
-          enablePan={true}
-          enableZoom={true}
-          enableRotate={true}
-          enableDamping={true}
-          dampingFactor={0.05}
-          minDistance={1}
-          maxDistance={15}
-        />
-      </Canvas>
+          <directionalLight
+            ref={fillLightRef}
+            position={fillLightPos}
+            intensity={currentPreset.fillLight.intensity}
+            color={currentPreset.fillLight.color}
+          />
+
+          <spotLight
+            ref={spotLightRef}
+            position={spotLightPos}
+            intensity={currentPreset.spotLight.intensity}
+            color={currentPreset.spotLight.color}
+            angle={0.6}
+            penumbra={1}
+          />
+
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+            <planeGeometry args={[100, 100]} />
+            <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
+          </mesh>
+
+          <Suspense fallback={null}>
+            <Model
+              key={displayedModelUrl}
+              url={displayedModelUrl}
+              isExploded={isExploded}
+              lightPosition={lightPosition}
+            />
+          </Suspense>
+
+          <OrbitControls
+            makeDefault
+            enablePan={true}
+            enableZoom={true}
+            enableRotate={true}
+            enableDamping={true}
+            dampingFactor={0.05}
+            minDistance={1}
+            maxDistance={15}
+          />
+        </Canvas>
+      </div>
     </div>
   )
 }
