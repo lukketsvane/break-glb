@@ -24,6 +24,8 @@ export default function Home() {
   })
 
   const [chairModels, setChairModels] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [isExploded, setIsExploded] = useState(false)
   const [showInfo, setShowInfo] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
@@ -61,18 +63,63 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    getChairModels().then((models) => {
-      if (models.length > 0) {
-        setChairModels(models)
+    let mounted = true
+
+    const loadModels = async () => {
+      try {
+        setIsLoading(true)
+        setLoadError(null)
+        const models = await getChairModels()
+
+        if (!mounted) return
+
+        if (models.length > 0) {
+          setChairModels(models)
+          setLoadError(null)
+        } else {
+          setLoadError("No chair models found")
+        }
+      } catch (error) {
+        console.error("[v0] Error loading chair models:", error)
+        if (mounted) {
+          setLoadError("Failed to load chair models. Please refresh the page.")
+        }
+      } finally {
+        if (mounted) {
+          setIsLoading(false)
+        }
       }
-    })
+    }
+
+    loadModels()
+
+    return () => {
+      mounted = false
+    }
   }, [])
 
   useEffect(() => {
-    getChairData(chairIndex).then((data) => {
-      setChairData(data)
-    })
-  }, [chairIndex])
+    if (chairModels.length === 0) return
+
+    let mounted = true
+
+    const loadChairData = async () => {
+      try {
+        const data = await getChairData(chairIndex)
+        if (mounted) {
+          setChairData(data)
+        }
+      } catch (error) {
+        console.error("[v0] Error loading chair data:", error)
+      }
+    }
+
+    loadChairData()
+
+    return () => {
+      mounted = false
+    }
+  }, [chairIndex, chairModels.length])
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -264,7 +311,26 @@ export default function Home() {
     }
   }
 
-  if (chairModels.length === 0) {
+  if (loadError) {
+    return (
+      <div
+        className="h-dvh w-screen flex items-center justify-center p-6"
+        style={{ background: theme === "light" ? "#ffffff" : "#000000" }}
+      >
+        <div className="text-center max-w-md">
+          <p className={`text-lg mb-4 ${theme === "light" ? "text-black" : "text-white"}`}>{loadError}</p>
+          <Button
+            onClick={() => window.location.reload()}
+            className={theme === "light" ? "bg-black text-white" : "bg-white text-black"}
+          >
+            Refresh Page
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (isLoading || chairModels.length === 0) {
     return (
       <div
         className="h-dvh w-screen flex items-center justify-center"
@@ -291,7 +357,13 @@ export default function Home() {
       style={{ background: theme === "light" ? "#ffffff" : "#000000", transition: "none" }}
     >
       <div className="h-full w-full relative">
-        <ModelViewer modelUrl={modelUrl} isExploded={isExploded} chairIndex={chairIndex} theme={theme} />
+        <ModelViewer
+          modelUrl={modelUrl}
+          isExploded={isExploded}
+          chairIndex={chairIndex}
+          theme={theme}
+          performanceMode={performanceMode}
+        />
 
         {showInfo && chairData && (
           <div className="absolute top-6 left-6 z-10 pointer-events-none">

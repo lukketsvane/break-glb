@@ -1,8 +1,12 @@
 "use server"
 
+import { unstable_cache } from "next/cache"
+
 const NOTION_API_KEY = process.env.NOTION_API_KEY || "ntn_J76253346485Lux1eAl3mzB3E2VdgRQNSd5hppo188MblR"
 const DATABASE_ID = "2961c6815f7880a083eefe9705d6306c"
 const NOTION_VERSION = "2022-06-28"
+
+const CACHE_REVALIDATE_SECONDS = 300
 
 interface ChairData {
   url: string
@@ -24,74 +28,84 @@ interface ChairData {
   source: string
 }
 
-async function queryNotionDatabase() {
-  let allResults: any[] = []
-  let hasMore = true
-  let startCursor: string | undefined = undefined
+const queryNotionDatabase = unstable_cache(
+  async () => {
+    let allResults: any[] = []
+    let hasMore = true
+    let startCursor: string | undefined = undefined
+    let pageCount = 0
+    const maxPages = 10 // Safety limit to prevent infinite loops
 
-  while (hasMore) {
-    const response = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${NOTION_API_KEY}`,
-        "Notion-Version": NOTION_VERSION,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sorts: [
-          {
-            property: "Name",
-            direction: "ascending",
+    while (hasMore && pageCount < maxPages) {
+      try {
+        const response = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${NOTION_API_KEY}`,
+            "Notion-Version": NOTION_VERSION,
+            "Content-Type": "application/json",
           },
-        ],
-        start_cursor: startCursor,
-        page_size: 100, // Maximum allowed by Notion API
-      }),
-    })
+          body: JSON.stringify({
+            sorts: [
+              {
+                property: "Name",
+                direction: "ascending",
+              },
+            ],
+            start_cursor: startCursor,
+            page_size: 100,
+          }),
+          signal: AbortSignal.timeout(10000), // 10 second timeout per request
+        })
 
-    if (!response.ok) {
-      const error = await response.text()
-      console.error("[v0] Notion API error:", error)
-      throw new Error(`Notion API error: ${response.status}`)
+        if (!response.ok) {
+          const error = await response.text()
+          console.error("[v0] Notion API error:", error)
+          throw new Error(`Notion API error: ${response.status}`)
+        }
+
+        const data = await response.json()
+        allResults = allResults.concat(data.results)
+        hasMore = data.has_more
+        startCursor = data.next_cursor
+        pageCount++
+
+        console.log("[v0] Fetched page", pageCount, "with", data.results.length, "entries. Total:", allResults.length)
+      } catch (error) {
+        console.error("[v0] Error fetching Notion page:", error)
+        break
+      }
     }
 
-    const data = await response.json()
-    allResults = allResults.concat(data.results)
-    hasMore = data.has_more
-    startCursor = data.next_cursor
-
-    console.log("[v0] Fetched page with", data.results.length, "entries. Total so far:", allResults.length)
-  }
-
-  return { results: allResults }
-}
+    return { results: allResults }
+  },
+  ["notion-database-query"],
+  {
+    revalidate: CACHE_REVALIDATE_SECONDS,
+    tags: ["notion-data"],
+  },
+)
 
 export async function getChairModels(): Promise<string[]> {
   try {
-    console.log("[v0] Fetching chair models from Notion database:", DATABASE_ID)
+    console.log("[v0] Fetching chair models from cache/Notion")
 
     const data = await queryNotionDatabase()
 
-    console.log("[v0] Notion response:", data.results.length, "pages found")
+    console.log("[v0] Total pages found:", data.results.length)
 
     const glbUrls = data.results
       .map((page: any) => {
-        // Try glb_url property first (URL type)
         const glbUrl = page.properties?.glb_url?.url || null
         if (glbUrl) {
-          console.log("[v0] Found GLB URL from glb_url:", glbUrl)
           return glbUrl
         }
 
-        // Fallback to GLB files property if it exists
         const files = page.properties?.GLB?.files || []
         if (files.length > 0) {
-          const url = files[0].file?.url || files[0].external?.url || null
-          console.log("[v0] Found GLB URL from files:", url)
-          return url
+          return files[0].file?.url || files[0].external?.url || null
         }
 
-        console.log("[v0] No GLB URL found for page:", page.properties?.Name?.title?.[0]?.plain_text)
         return null
       })
       .filter((url): url is string => url !== null)
@@ -99,7 +113,7 @@ export async function getChairModels(): Promise<string[]> {
     console.log("[v0] Total GLB URLs:", glbUrls.length)
     return glbUrls
   } catch (error) {
-    console.error("[v0] Failed to load chair models from Notion:", error)
+    console.error("[v0] Failed to load chair models:", error)
     return []
   }
 }
@@ -117,8 +131,6 @@ export async function getChairData(index: number): Promise<ChairData | null> {
 
     const page: any = data.results[index]
     const props = page.properties
-
-    console.log("[v0] All property keys:", Object.keys(props))
 
     const extractText = (prop: any): string => {
       if (!prop) return ""
@@ -141,13 +153,8 @@ export async function getChairData(index: number): Promise<ChairData | null> {
     const name = extractText(props?.Name) || "Unknown"
     const designer = extractText(props?.kunstnar_produsent)
     const year = props?.år?.number?.toString() || extractText(props?.år)
-
     const type = extractText(props?.objekttype) || extractText(props?.klassifikasjon) || ""
-
     const period = extractText(props?.stilperiode) || ""
-
-    console.log("[v0] Extracted type:", type, "period:", period)
-
     const owner = extractText(props?.eigar_samling)
 
     const height = props?.H_mm?.number || 0
@@ -161,19 +168,10 @@ export async function getChairData(index: number): Promise<ChairData | null> {
       extractText(props?.materiale) ||
       ""
 
-    console.log("[v0] Materials field check:")
-    console.log("[v0] - materiale_teknikk:", props?.materiale_teknikk)
-    console.log("[v0] - materiale_teknikkar:", props?.materiale_teknikkar)
-    console.log("[v0] - materiale:", props?.materiale)
-    console.log("[v0] - Extracted materials:", materials)
-
     const tags = props?.stikkord?.multi_select?.map((tag: any) => tag.name) || []
     const notes = extractText(props?.notater)
-
     const classification = extractText(props?.klassifikasjon)
     const source = extractText(props?.kjelde)
-
-    console.log("[v0] Extracted chair data:", { name, designer, year, type, period, classification, materials, url })
 
     return {
       url,
@@ -191,7 +189,7 @@ export async function getChairData(index: number): Promise<ChairData | null> {
       source,
     }
   } catch (error) {
-    console.error("[v0] Failed to load chair data from Notion:", error)
+    console.error("[v0] Failed to load chair data:", error)
     return null
   }
 }
