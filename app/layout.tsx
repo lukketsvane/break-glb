@@ -18,7 +18,7 @@ const _sourceSerif_4 = Source_Serif_4({
 })
 
 export const metadata: Metadata = {
-  title: "Chair Exploder",
+  title: "sitt.iverfinne.no",
   description: "Interactive 3D chair model viewer with explosion effects",
   generator: "v0.app",
   manifest: "/manifest.webmanifest",
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Chair Exploder",
+    title: "sitt.iverfinne.no",
     startupImage: [
       {
         url: "/icon-512x512.png",
@@ -82,7 +82,7 @@ export default function RootLayout({
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Chair Exploder" />
+        <meta name="apple-mobile-web-app-title" content="sitt.iverfinne.no" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className={`font-sans antialiased`}>

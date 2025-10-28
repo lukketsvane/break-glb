@@ -10,12 +10,15 @@ interface ModelViewerProps {
   isExploded: boolean
   chairIndex: number
   theme: "light" | "dark"
+  performanceMode: boolean
 }
 
 interface ModelProps {
   url: string
   isExploded: boolean
   lightPosition: THREE.Vector3
+  opacity?: number
+  performanceMode: boolean
 }
 
 interface Part {
@@ -38,7 +41,7 @@ interface Part {
   grabOffset: THREE.Vector3
 }
 
-function Model({ url, isExploded, lightPosition }: ModelProps) {
+function Model({ url, isExploded, lightPosition, opacity = 1, performanceMode }: ModelProps) {
   const { scene } = useGLTF(url)
   const [isLoaded, setIsLoaded] = useState(false)
   const groupRef = useRef<THREE.Group>(null)
@@ -59,6 +62,14 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
   const isExplodedRef = useRef(isExploded)
 
   useEffect(() => {
+    partsRef.current = parts
+  }, [parts])
+
+  useEffect(() => {
+    isExplodedRef.current = isExploded
+  }, [isExploded])
+
+  useEffect(() => {
     if (!scene) return
 
     setIsLoaded(true)
@@ -73,7 +84,7 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
     const box = new THREE.Box3().setFromObject(scene)
     const minY = box.min.y
     const size = box.getSize(new THREE.Vector3())
-    scene.position.y = -minY // Lift the model so its bottom is at y=0
+    scene.position.y = -minY
 
     const explodableParts: Part[] = []
 
@@ -193,7 +204,6 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
     findParts(scene)
     setParts(explodableParts)
 
-    // Reset animation state for new model
     hasExplodedRef.current = false
     isAnimatingRef.current = false
   }, [scene])
@@ -361,7 +371,7 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
 
     const easedProgress = easeOutQuart(animationProgress)
 
-    parts.forEach((part) => {
+    parts.forEach((part, index) => {
       const {
         object,
         originalPosition,
@@ -371,6 +381,7 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
         isDragging,
         angularVelocity,
         originalRotation,
+        collisionRadius,
       } = part
 
       if (isDragging) {
@@ -381,6 +392,26 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
         angularVelocity.x *= 0.95
         angularVelocity.y *= 0.95
         angularVelocity.z *= 0.95
+
+        if (performanceMode && isExploded) {
+          parts.forEach((otherPart, otherIndex) => {
+            if (index === otherIndex || otherPart.isDragging) return
+
+            const distance = currentPosition.distanceTo(otherPart.currentPosition)
+            const minDistance = collisionRadius + otherPart.collisionRadius
+
+            if (distance < minDistance) {
+              const pushDirection = currentPosition.clone().sub(otherPart.currentPosition).normalize()
+              const pushAmount = (minDistance - distance) * 0.5
+
+              object.position.add(pushDirection.multiplyScalar(pushAmount))
+              currentPosition.copy(object.position)
+
+              velocity.add(pushDirection.multiplyScalar(0.1))
+            }
+          })
+        }
+
         return
       }
 
@@ -396,6 +427,22 @@ function Model({ url, isExploded, lightPosition }: ModelProps) {
         angularVelocity.x *= 0.92
         angularVelocity.y *= 0.92
         angularVelocity.z *= 0.92
+
+        if (performanceMode && isExploded) {
+          parts.forEach((otherPart, otherIndex) => {
+            if (index === otherIndex) return
+
+            const distance = currentPosition.distanceTo(otherPart.currentPosition)
+            const minDistance = collisionRadius + otherPart.collisionRadius
+
+            if (distance < minDistance) {
+              const pushDirection = currentPosition.clone().sub(otherPart.currentPosition).normalize()
+              const pushAmount = (minDistance - distance) * 0.5
+
+              velocity.add(pushDirection.multiplyScalar(0.2))
+            }
+          })
+        }
 
         const targetPosition = isExploded ? explodedPosition : originalPosition
         const returnForce = targetPosition.clone().sub(currentPosition).multiplyScalar(0.05)
@@ -489,14 +536,9 @@ function randomizeLightPosition(basePosition: number[]): [number, number, number
   return [x + randomOffset(), y + randomOffset(), z + randomOffset()]
 }
 
-export function ModelViewer({
-  modelUrl,
-  isExploded,
-  chairIndex,
-  theme,
-}: ModelViewerProps & { theme: "light" | "dark" }) {
+export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performanceMode }: ModelViewerProps) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("studio")
-  const [lightPosition, setLightPosition] = useState(new THREE.Vector3(10, 10, 5))
+  const [hasManualLightControl, setHasManualLightControl] = useState(false)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([10, 10, 5])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-10, -10, -5])
@@ -507,29 +549,41 @@ export function ModelViewer({
   const spotLightRef = useRef<THREE.SpotLight>(null)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
+  const isThreeFingerDraggingRef = useRef(false)
 
   const threeFingerTapCountRef = useRef(0)
   const threeFingerTapTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastThreeFingerTapTimeRef = useRef(0)
 
   const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
-  const [isTransitioning, setIsTransitioning] = useState(false)
+  const [previousModelUrl, setPreviousModelUrl] = useState<string | null>(null)
+  const [transitionProgress, setTransitionProgress] = useState(1)
 
   useEffect(() => {
     if (modelUrl !== displayedModelUrl) {
-      setIsTransitioning(true)
+      setPreviousModelUrl(displayedModelUrl)
+      setTransitionProgress(0)
+
       useGLTF.preload(modelUrl)
 
-      const transitionTimeout = setTimeout(() => {
-        setDisplayedModelUrl(modelUrl)
-        setTimeout(() => {
-          setIsTransitioning(false)
-        }, 50)
-      }, 200)
+      const startTime = Date.now()
+      const duration = 400
 
-      return () => {
-        clearTimeout(transitionTimeout)
+      const animate = () => {
+        const elapsed = Date.now() - startTime
+        const progress = Math.min(elapsed / duration, 1)
+
+        setTransitionProgress(progress)
+
+        if (progress < 1) {
+          requestAnimationFrame(animate)
+        } else {
+          setDisplayedModelUrl(modelUrl)
+          setPreviousModelUrl(null)
+        }
       }
+
+      requestAnimationFrame(animate)
     }
   }, [modelUrl, displayedModelUrl])
 
@@ -584,16 +638,10 @@ export function ModelViewer({
   }, [lightingPreset])
 
   useEffect(() => {
-    const preset = LIGHTING_PRESETS[lightingPreset]
-    setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
-    setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
-    setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
-  }, [lightingPreset])
-
-  useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 3) {
         isThreeFingerRef.current = true
+        isThreeFingerDraggingRef.current = false
         const touch = e.touches[0]
         touchStartRef.current = { x: touch.clientX, y: touch.clientY }
         e.preventDefault()
@@ -602,16 +650,18 @@ export function ModelViewer({
 
     const handleTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 3 && isThreeFingerRef.current && touchStartRef.current) {
+        isThreeFingerDraggingRef.current = true
+
         const touch = e.touches[0]
         const deltaX = (touch.clientX - touchStartRef.current.x) * 0.05
         const deltaY = (touch.clientY - touchStartRef.current.y) * 0.05
 
-        setLightPosition((prev) => {
-          const newPos = prev.clone()
-          newPos.x += deltaX
-          newPos.y -= deltaY
+        setMainLightPos((prev) => {
+          const newPos: [number, number, number] = [prev[0] + deltaX, prev[1] - deltaY, prev[2]]
           return newPos
         })
+
+        setHasManualLightControl(true)
 
         touchStartRef.current = { x: touch.clientX, y: touch.clientY }
         e.preventDefault()
@@ -621,6 +671,7 @@ export function ModelViewer({
     const handleTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 3) {
         isThreeFingerRef.current = false
+        isThreeFingerDraggingRef.current = false
         touchStartRef.current = null
       }
     }
@@ -639,81 +690,114 @@ export function ModelViewer({
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const bgColor = theme === "light" ? "#ffffff" : "#000000"
 
+  const oldModelOpacity = previousModelUrl ? 1 - transitionProgress : 0
+  const newModelOpacity = previousModelUrl ? transitionProgress : 1
+
+  const isHighPerformanceDevice =
+    typeof window !== "undefined" && (/iPad|Macintosh/.test(navigator.userAgent) || window.innerWidth >= 1024)
+
+  const shadowMapSize = performanceMode && isHighPerformanceDevice ? 4096 : 2048
+  const shadowBias = performanceMode ? -0.0001 : -0.0005
+  const toneMapping = performanceMode ? THREE.ACESFilmicToneMapping : THREE.LinearToneMapping
+
   return (
     <div className="w-full h-full relative" style={{ background: bgColor, transition: "none" }}>
-      <div className="w-full h-full transition-opacity duration-200" style={{ opacity: isTransitioning ? 0 : 1 }}>
-        <Canvas
-          camera={{ position: [2.75, 5, 2.75], fov: 50 }}
-          gl={{ antialias: true, alpha: false }}
-          shadows
-          style={{ background: bgColor, transition: "none" }}
-        >
-          <color attach="background" args={[bgColor]} />
+      <Canvas
+        camera={{ position: [2.75, 5, 2.75], fov: 50 }}
+        gl={{
+          antialias: true,
+          alpha: false,
+          powerPreference: performanceMode ? "high-performance" : "default",
+          toneMapping: toneMapping,
+          toneMappingExposure: performanceMode ? 1.2 : 1.0,
+        }}
+        shadows
+        style={{ background: bgColor, transition: "none" }}
+      >
+        <color attach="background" args={[bgColor]} />
 
-          <Environment preset={currentPreset.environment} />
+        <Environment preset={currentPreset.environment} />
 
-          <ambientLight intensity={currentPreset.ambientIntensity} />
+        <ambientLight intensity={currentPreset.ambientIntensity} />
 
-          <directionalLight
-            ref={lightRef}
-            position={mainLightPos}
-            intensity={currentPreset.mainLight.intensity}
-            color={currentPreset.mainLight.color}
-            castShadow
-            shadow-mapSize-width={4096}
-            shadow-mapSize-height={4096}
-            shadow-camera-far={50}
-            shadow-camera-near={0.1}
-            shadow-camera-left={-15}
-            shadow-camera-right={15}
-            shadow-camera-top={15}
-            shadow-camera-bottom={-15}
-            shadow-bias={-0.0005}
-            shadow-normalBias={0.05}
+        <directionalLight
+          ref={lightRef}
+          position={mainLightPos}
+          intensity={currentPreset.mainLight.intensity}
+          color={currentPreset.mainLight.color}
+          castShadow
+          shadow-mapSize-width={shadowMapSize}
+          shadow-mapSize-height={shadowMapSize}
+          shadow-camera-far={50}
+          shadow-camera-near={0.1}
+          shadow-camera-left={-15}
+          shadow-camera-right={15}
+          shadow-camera-top={15}
+          shadow-camera-bottom={-15}
+          shadow-bias={shadowBias}
+          shadow-normalBias={performanceMode ? 0.02 : 0.05}
+          shadow-radius={performanceMode ? 2 : 1}
+        />
+
+        <directionalLight
+          ref={fillLightRef}
+          position={fillLightPos}
+          intensity={currentPreset.fillLight.intensity}
+          color={currentPreset.fillLight.color}
+        />
+
+        <spotLight
+          ref={spotLightRef}
+          position={spotLightPos}
+          intensity={currentPreset.spotLight.intensity}
+          color={currentPreset.spotLight.color}
+          angle={0.6}
+          penumbra={1}
+          castShadow={performanceMode}
+          shadow-mapSize-width={performanceMode ? 2048 : 1024}
+          shadow-mapSize-height={performanceMode ? 2048 : 1024}
+        />
+
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+          <planeGeometry args={[100, 100]} />
+          <shadowMaterial
+            opacity={theme === "light" ? (performanceMode ? 0.4 : 0.3) : performanceMode ? 0.6 : 0.5}
+            transparent
           />
+        </mesh>
 
-          <directionalLight
-            ref={fillLightRef}
-            position={fillLightPos}
-            intensity={currentPreset.fillLight.intensity}
-            color={currentPreset.fillLight.color}
-          />
-
-          <spotLight
-            ref={spotLightRef}
-            position={spotLightPos}
-            intensity={currentPreset.spotLight.intensity}
-            color={currentPreset.spotLight.color}
-            angle={0.6}
-            penumbra={1}
-          />
-
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-            <planeGeometry args={[100, 100]} />
-            <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
-          </mesh>
-
-          <Suspense fallback={null}>
+        <Suspense fallback={null}>
+          {previousModelUrl && (
             <Model
-              key={displayedModelUrl}
-              url={displayedModelUrl}
+              key={previousModelUrl}
+              url={previousModelUrl}
               isExploded={isExploded}
-              lightPosition={lightPosition}
+              lightPosition={new THREE.Vector3(...mainLightPos)}
+              opacity={oldModelOpacity}
+              performanceMode={performanceMode}
             />
-          </Suspense>
-
-          <OrbitControls
-            makeDefault
-            enablePan={true}
-            enableZoom={true}
-            enableRotate={true}
-            enableDamping={true}
-            dampingFactor={0.05}
-            minDistance={1}
-            maxDistance={15}
+          )}
+          <Model
+            key={displayedModelUrl}
+            url={displayedModelUrl}
+            isExploded={isExploded}
+            lightPosition={new THREE.Vector3(...mainLightPos)}
+            opacity={newModelOpacity}
+            performanceMode={performanceMode}
           />
-        </Canvas>
-      </div>
+        </Suspense>
+
+        <OrbitControls
+          makeDefault
+          enablePan={true}
+          enableZoom={true}
+          enableRotate={true}
+          enableDamping={true}
+          dampingFactor={0.05}
+          minDistance={1}
+          maxDistance={15}
+        />
+      </Canvas>
     </div>
   )
 }
