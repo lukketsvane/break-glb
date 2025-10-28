@@ -363,6 +363,7 @@ export default function Home() {
           chairIndex={chairIndex}
           theme={theme}
           performanceMode={performanceMode}
+          onToggleExplode={handleExplodeToggle} // Added callback for keyboard explode toggle
         />
 
         {showInfo && chairData && (

@@ -12,6 +12,7 @@ interface ModelViewerProps {
   chairIndex: number
   theme: "light" | "dark"
   performanceMode?: boolean
+  onToggleExplode?: () => void // Added callback for explode toggle
 }
 
 interface ModelProps {
@@ -650,6 +651,7 @@ export function ModelViewer({
   chairIndex,
   theme,
   performanceMode = false,
+  onToggleExplode, // Added onToggleExplode prop
 }: ModelViewerProps & { theme: "light" | "dark" }) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
@@ -1054,15 +1056,22 @@ export function ModelViewer({
         const currentIndex = presets.indexOf(materialPreset)
         const nextIndex = (currentIndex + 1) % presets.length
         setMaterialPreset(presets[nextIndex])
-      } else if (e.key === "o" || e.key === "O") {
+      }
+      // O key - Toggle orthographic camera
+      else if (e.key === "o" || e.key === "O") {
         e.preventDefault()
         setIsOrthographic((prev) => !prev)
+      } else if (e.key === "p" || e.key === "P") {
+        e.preventDefault()
+        if (onToggleExplode) {
+          onToggleExplode()
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightingPreset, chairIndex, materialPreset])
+  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode]) // Added onToggleExplode to dependencies
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const currentBackground = BACKGROUNDS[backgroundIndex]
