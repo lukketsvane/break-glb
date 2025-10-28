@@ -10,7 +10,7 @@ interface ModelViewerProps {
   isExploded: boolean
   chairIndex: number
   theme: "light" | "dark"
-  performanceMode: boolean
+  performanceMode?: boolean
 }
 
 interface ModelProps {
@@ -18,7 +18,6 @@ interface ModelProps {
   isExploded: boolean
   lightPosition: THREE.Vector3
   opacity?: number
-  performanceMode: boolean
 }
 
 interface Part {
@@ -41,7 +40,7 @@ interface Part {
   grabOffset: THREE.Vector3
 }
 
-function Model({ url, isExploded, lightPosition, opacity = 1, performanceMode }: ModelProps) {
+function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
   const { scene } = useGLTF(url)
   const [isLoaded, setIsLoaded] = useState(false)
   const groupRef = useRef<THREE.Group>(null)
@@ -371,7 +370,7 @@ function Model({ url, isExploded, lightPosition, opacity = 1, performanceMode }:
 
     const easedProgress = easeOutQuart(animationProgress)
 
-    parts.forEach((part, index) => {
+    parts.forEach((part) => {
       const {
         object,
         originalPosition,
@@ -381,7 +380,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1, performanceMode }:
         isDragging,
         angularVelocity,
         originalRotation,
-        collisionRadius,
       } = part
 
       if (isDragging) {
@@ -392,26 +390,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1, performanceMode }:
         angularVelocity.x *= 0.95
         angularVelocity.y *= 0.95
         angularVelocity.z *= 0.95
-
-        if (performanceMode && isExploded) {
-          parts.forEach((otherPart, otherIndex) => {
-            if (index === otherIndex || otherPart.isDragging) return
-
-            const distance = currentPosition.distanceTo(otherPart.currentPosition)
-            const minDistance = collisionRadius + otherPart.collisionRadius
-
-            if (distance < minDistance) {
-              const pushDirection = currentPosition.clone().sub(otherPart.currentPosition).normalize()
-              const pushAmount = (minDistance - distance) * 0.5
-
-              object.position.add(pushDirection.multiplyScalar(pushAmount))
-              currentPosition.copy(object.position)
-
-              velocity.add(pushDirection.multiplyScalar(0.1))
-            }
-          })
-        }
-
         return
       }
 
@@ -428,25 +406,27 @@ function Model({ url, isExploded, lightPosition, opacity = 1, performanceMode }:
         angularVelocity.y *= 0.92
         angularVelocity.z *= 0.92
 
-        if (performanceMode && isExploded) {
-          parts.forEach((otherPart, otherIndex) => {
-            if (index === otherIndex) return
+        const targetPosition = isExploded ? explodedPosition : originalPosition
+        const returnForce = targetPosition.clone().sub(currentPosition).multiplyScalar(0.05)
+        velocity.add(returnForce)
+
+        if (isExploded) {
+          partsRef.current.forEach((otherPart) => {
+            if (otherPart === part || otherPart.isDragging) return
 
             const distance = currentPosition.distanceTo(otherPart.currentPosition)
-            const minDistance = collisionRadius + otherPart.collisionRadius
+            const minDistance = part.collisionRadius + otherPart.collisionRadius
 
-            if (distance < minDistance) {
+            if (distance < minDistance && distance > 0) {
               const pushDirection = currentPosition.clone().sub(otherPart.currentPosition).normalize()
-              const pushAmount = (minDistance - distance) * 0.5
+              const overlap = minDistance - distance
+              const pushForce = pushDirection.multiplyScalar(overlap * 0.5)
 
-              velocity.add(pushDirection.multiplyScalar(0.2))
+              velocity.add(pushForce)
             }
           })
         }
 
-        const targetPosition = isExploded ? explodedPosition : originalPosition
-        const returnForce = targetPosition.clone().sub(currentPosition).multiplyScalar(0.05)
-        velocity.add(returnForce)
         return
       }
 
@@ -536,7 +516,13 @@ function randomizeLightPosition(basePosition: number[]): [number, number, number
   return [x + randomOffset(), y + randomOffset(), z + randomOffset()]
 }
 
-export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performanceMode }: ModelViewerProps) {
+export function ModelViewer({
+  modelUrl,
+  isExploded,
+  chairIndex,
+  theme,
+  performanceMode = false,
+}: ModelViewerProps & { theme: "light" | "dark" }) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("studio")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
 
@@ -561,13 +547,16 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
 
   useEffect(() => {
     if (modelUrl !== displayedModelUrl) {
+      // Start transition
       setPreviousModelUrl(displayedModelUrl)
       setTransitionProgress(0)
 
+      // Preload new model
       useGLTF.preload(modelUrl)
 
+      // Animate transition
       const startTime = Date.now()
-      const duration = 400
+      const duration = 400 // 400ms crossfade
 
       const animate = () => {
         const elapsed = Date.now() - startTime
@@ -578,6 +567,7 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
         if (progress < 1) {
           requestAnimationFrame(animate)
         } else {
+          // Transition complete
           setDisplayedModelUrl(modelUrl)
           setPreviousModelUrl(null)
         }
@@ -696,9 +686,11 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
   const isHighPerformanceDevice =
     typeof window !== "undefined" && (/iPad|Macintosh/.test(navigator.userAgent) || window.innerWidth >= 1024)
 
-  const shadowMapSize = performanceMode && isHighPerformanceDevice ? 4096 : 2048
-  const shadowBias = performanceMode ? -0.0001 : -0.0005
-  const toneMapping = performanceMode ? THREE.ACESFilmicToneMapping : THREE.LinearToneMapping
+  const useEnhancedRendering = performanceMode && isHighPerformanceDevice
+
+  const shadowMapSize = useEnhancedRendering ? 4096 : 2048
+  const shadowBias = useEnhancedRendering ? -0.0001 : -0.0005
+  const shadowRadius = useEnhancedRendering ? 2 : 1
 
   return (
     <div className="w-full h-full relative" style={{ background: bgColor, transition: "none" }}>
@@ -707,9 +699,8 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
         gl={{
           antialias: true,
           alpha: false,
-          powerPreference: performanceMode ? "high-performance" : "default",
-          toneMapping: toneMapping,
-          toneMappingExposure: performanceMode ? 1.2 : 1.0,
+          toneMapping: useEnhancedRendering ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping,
+          toneMappingExposure: useEnhancedRendering ? 1.2 : 1,
         }}
         shadows
         style={{ background: bgColor, transition: "none" }}
@@ -735,8 +726,8 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
           shadow-camera-top={15}
           shadow-camera-bottom={-15}
           shadow-bias={shadowBias}
-          shadow-normalBias={performanceMode ? 0.02 : 0.05}
-          shadow-radius={performanceMode ? 2 : 1}
+          shadow-normalBias={0.05}
+          shadow-radius={shadowRadius}
         />
 
         <directionalLight
@@ -753,17 +744,14 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
           color={currentPreset.spotLight.color}
           angle={0.6}
           penumbra={1}
-          castShadow={performanceMode}
-          shadow-mapSize-width={performanceMode ? 2048 : 1024}
-          shadow-mapSize-height={performanceMode ? 2048 : 1024}
+          castShadow={useEnhancedRendering}
+          shadow-mapSize-width={useEnhancedRendering ? 2048 : 1024}
+          shadow-mapSize-height={useEnhancedRendering ? 2048 : 1024}
         />
 
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
           <planeGeometry args={[100, 100]} />
-          <shadowMaterial
-            opacity={theme === "light" ? (performanceMode ? 0.4 : 0.3) : performanceMode ? 0.6 : 0.5}
-            transparent
-          />
+          <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
         </mesh>
 
         <Suspense fallback={null}>
@@ -774,7 +762,6 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
               isExploded={isExploded}
               lightPosition={new THREE.Vector3(...mainLightPos)}
               opacity={oldModelOpacity}
-              performanceMode={performanceMode}
             />
           )}
           <Model
@@ -783,7 +770,6 @@ export function ModelViewer({ modelUrl, isExploded, chairIndex, theme, performan
             isExploded={isExploded}
             lightPosition={new THREE.Vector3(...mainLightPos)}
             opacity={newModelOpacity}
-            performanceMode={performanceMode}
           />
         </Suspense>
 

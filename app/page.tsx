@@ -31,14 +31,14 @@ export default function Home() {
   const [showInfoOverlay, setShowInfoOverlay] = useState(false)
   const [chairData, setChairData] = useState<any>(null)
   const [autoBreakEnabled, setAutoBreakEnabled] = useState(false)
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    if (typeof window === "undefined") return "dark"
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"
-  })
   const [performanceMode, setPerformanceMode] = useState(() => {
     if (typeof window === "undefined") return false
     const saved = localStorage.getItem("performanceMode")
     return saved === "true"
+  })
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark"
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"
   })
 
   const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -173,12 +173,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [chairIndex, chairModels.length])
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("performanceMode", performanceMode.toString())
-    }
-  }, [performanceMode])
-
   const navigateToChair = useCallback(
     (index: number) => {
       if (index < 0 || index >= chairModels.length) return
@@ -197,30 +191,6 @@ export default function Home() {
     const newIndex = chairIndex === chairModels.length - 1 ? 0 : chairIndex + 1
     navigateToChair(newIndex)
   }, [chairIndex, chairModels.length, navigateToChair])
-
-  const handleExplodeToggle = () => {
-    const now = Date.now()
-    const timeSinceLastTap = now - lastTapTimeRef.current
-
-    if (timeSinceLastTap < 300) {
-      setAutoBreakEnabled(!autoBreakEnabled)
-      setShowInfo(true)
-    } else {
-      setIsExploded(!isExploded)
-      setShowInfo(true)
-    }
-
-    lastTapTimeRef.current = now
-  }
-
-  const handleThemeToggle = () => {
-    setTheme(theme === "light" ? "dark" : "light")
-  }
-
-  const handlePerformanceModeToggle = () => {
-    setPerformanceMode(!performanceMode)
-    setShowInfo(true)
-  }
 
   const getVisibleDots = () => {
     const totalChairs = chairModels.length
@@ -267,6 +237,33 @@ export default function Home() {
     setIsDragging(false)
   }
 
+  const handleExplodeToggle = () => {
+    const now = Date.now()
+    const timeSinceLastTap = now - lastTapTimeRef.current
+
+    if (timeSinceLastTap < 300) {
+      setAutoBreakEnabled(!autoBreakEnabled)
+      setShowInfo(true)
+    } else {
+      setIsExploded(!isExploded)
+      setShowInfo(true)
+    }
+
+    lastTapTimeRef.current = now
+  }
+
+  const handleThemeToggle = () => {
+    setTheme(theme === "light" ? "dark" : "light")
+  }
+
+  const handlePerformanceModeToggle = () => {
+    const newMode = !performanceMode
+    setPerformanceMode(newMode)
+    if (typeof window !== "undefined") {
+      localStorage.setItem("performanceMode", String(newMode))
+    }
+  }
+
   if (chairModels.length === 0) {
     return (
       <div
@@ -294,13 +291,7 @@ export default function Home() {
       style={{ background: theme === "light" ? "#ffffff" : "#000000", transition: "none" }}
     >
       <div className="h-full w-full relative">
-        <ModelViewer
-          modelUrl={modelUrl}
-          isExploded={isExploded}
-          chairIndex={chairIndex}
-          theme={theme}
-          performanceMode={performanceMode}
-        />
+        <ModelViewer modelUrl={modelUrl} isExploded={isExploded} chairIndex={chairIndex} theme={theme} />
 
         {showInfo && chairData && (
           <div className="absolute top-6 left-6 z-10 pointer-events-none">
@@ -309,7 +300,7 @@ export default function Home() {
                 theme === "light" ? "bg-white/80 border-black/10 text-black" : "bg-black/80 border-white/10 text-white"
               }`}
             >
-              <p className="text-sm font-medium">{chairData.name}</p>
+              <p className="text-sm font-medium">{chairData?.name || "stol"}</p>
             </div>
           </div>
         )}
