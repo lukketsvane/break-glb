@@ -2,7 +2,7 @@
 
 import { Suspense, useRef, useState, useEffect } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { OrbitControls, useGLTF, Environment } from "@react-three/drei"
+import { OrbitControls, useGLTF } from "@react-three/drei"
 import { EffectComposer, DepthOfField, Bloom, SSAO } from "@react-three/postprocessing"
 import * as THREE from "three"
 
@@ -521,36 +521,40 @@ function LoadingFallback() {
   return null
 }
 
-type LightingPreset = "studio" | "dramatic" | "soft" | "colorful"
+type LightingPreset = "gallery" | "golden-hour" | "nordic" | "spotlight"
 
 const LIGHTING_PRESETS = {
-  studio: {
-    environment: "studio" as const,
-    ambientIntensity: 0.3,
-    mainLight: { basePosition: [10, 10, 5], intensity: 1.2, color: "#ffffff" },
-    fillLight: { basePosition: [-10, -10, -5], intensity: 0.4, color: "#ffffff" },
-    spotLight: { basePosition: [0, 10, 0], intensity: 0.5, color: "#ffffff" },
+  gallery: {
+    name: "Gallery",
+    ambientIntensity: 0.2,
+    mainLight: { basePosition: [12, 15, 8], intensity: 2.8, color: "#ffffff" },
+    fillLight: { basePosition: [-8, 8, -6], intensity: 0.6, color: "#f0f0ff" },
+    spotLight: { basePosition: [0, 18, 0], intensity: 2.5, color: "#ffffff", angle: 0.4 },
+    rimLight: { basePosition: [-15, 5, -10], intensity: 1.8, color: "#e8f4ff" },
   },
-  dramatic: {
-    environment: "night" as const,
-    ambientIntensity: 0.1,
-    mainLight: { basePosition: [15, 5, 0], intensity: 2.5, color: "#ff8844" },
-    fillLight: { basePosition: [-5, -5, -10], intensity: 0.2, color: "#4488ff" },
-    spotLight: { basePosition: [0, 15, 5], intensity: 1.2, color: "#ffffff" },
+  "golden-hour": {
+    name: "Golden Hour",
+    ambientIntensity: 0.15,
+    mainLight: { basePosition: [20, 8, 15], intensity: 3.5, color: "#ffb366" },
+    fillLight: { basePosition: [-10, 3, -8], intensity: 0.4, color: "#6b8cff" },
+    spotLight: { basePosition: [15, 12, 10], intensity: 1.8, color: "#ffd699", angle: 0.5 },
+    rimLight: { basePosition: [-18, 6, -12], intensity: 2.2, color: "#ff9944" },
   },
-  soft: {
-    environment: "sunset" as const,
-    ambientIntensity: 0.6,
-    mainLight: { basePosition: [5, 8, 8], intensity: 0.8, color: "#fff5e6" },
-    fillLight: { basePosition: [-8, 5, -5], intensity: 0.6, color: "#e6f0ff" },
-    spotLight: { basePosition: [0, 12, 0], intensity: 0.3, color: "#fff5e6" },
+  nordic: {
+    name: "Nordic",
+    ambientIntensity: 0.35,
+    mainLight: { basePosition: [8, 20, 12], intensity: 2.2, color: "#e8f4ff" },
+    fillLight: { basePosition: [-12, 10, -10], intensity: 0.8, color: "#ffffff" },
+    spotLight: { basePosition: [0, 25, 0], intensity: 1.2, color: "#f0f8ff", angle: 0.6 },
+    rimLight: { basePosition: [-10, 8, -15], intensity: 1.0, color: "#d4e8ff" },
   },
-  colorful: {
-    environment: "city" as const,
-    ambientIntensity: 0.4,
-    mainLight: { basePosition: [8, 10, 8], intensity: 1.5, color: "#ff44ff" },
-    fillLight: { basePosition: [-8, -8, -8], intensity: 1.0, color: "#44ffff" },
-    spotLight: { basePosition: [0, 10, 0], intensity: 0.8, color: "#ffff44" },
+  spotlight: {
+    name: "Spotlight",
+    ambientIntensity: 0.05,
+    mainLight: { basePosition: [2, 25, 3], intensity: 4.5, color: "#ffffff" },
+    fillLight: { basePosition: [-15, 2, -12], intensity: 0.15, color: "#4466ff" },
+    spotLight: { basePosition: [0, 30, 0], intensity: 5.0, color: "#ffffee", angle: 0.3 },
+    rimLight: { basePosition: [-20, 8, -18], intensity: 2.5, color: "#ff6644" },
   },
 }
 
@@ -567,16 +571,19 @@ export function ModelViewer({
   theme,
   performanceMode = false,
 }: ModelViewerProps & { theme: "light" | "dark" }) {
-  const [lightingPreset, setLightingPreset] = useState<LightingPreset>("studio")
+  const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
 
-  const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([10, 10, 5])
-  const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-10, -10, -5])
-  const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 10, 0])
+  const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
+  const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
+  const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 18, 0])
+  const [rimLightPos, setRimLightPos] = useState<[number, number, number]>([-15, 5, -10])
 
   const lightRef = useRef<THREE.DirectionalLight>(null)
   const fillLightRef = useRef<THREE.DirectionalLight>(null)
   const spotLightRef = useRef<THREE.SpotLight>(null)
+  const rimLightRef = useRef<THREE.DirectionalLight>(null)
+
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
   const isThreeFingerDraggingRef = useRef(false)
@@ -627,7 +634,7 @@ export function ModelViewer({
           threeFingerTapCountRef.current++
 
           if (threeFingerTapCountRef.current === 2) {
-            const presets: LightingPreset[] = ["studio", "dramatic", "soft", "colorful"]
+            const presets: LightingPreset[] = ["gallery", "golden-hour", "nordic", "spotlight"]
             const currentIndex = presets.indexOf(lightingPreset)
             const nextIndex = (currentIndex + 1) % presets.length
             const nextPreset = presets[nextIndex]
@@ -637,6 +644,7 @@ export function ModelViewer({
             setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
             setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
             setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+            setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
 
             threeFingerTapCountRef.current = 0
           }
@@ -728,9 +736,9 @@ export function ModelViewer({
 
   const useEnhancedRendering = performanceMode && isHighPerformanceDevice
 
-  const shadowMapSize = useEnhancedRendering ? 8192 : 1024
-  const shadowBias = useEnhancedRendering ? -0.00005 : -0.001
-  const shadowRadius = useEnhancedRendering ? 4 : 1
+  const shadowMapSize = useEnhancedRendering ? 16384 : 1024
+  const shadowBias = useEnhancedRendering ? -0.00002 : -0.001
+  const shadowRadius = useEnhancedRendering ? 6 : 1
 
   return (
     <div className="w-full h-full relative" style={{ background: bgColor, transition: "none" }}>
@@ -739,8 +747,8 @@ export function ModelViewer({
         gl={{
           antialias: true,
           alpha: false,
-          toneMapping: useEnhancedRendering ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping,
-          toneMappingExposure: useEnhancedRendering ? 1.5 : 1,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: useEnhancedRendering ? 1.8 : 1.2,
           powerPreference: useEnhancedRendering ? "high-performance" : "default",
         }}
         shadows={useEnhancedRendering ? "soft" : true}
@@ -748,59 +756,67 @@ export function ModelViewer({
       >
         <color attach="background" args={[bgColor]} />
 
-        {!useEnhancedRendering && <Environment preset={currentPreset.environment} />}
-
         <ambientLight
-          intensity={useEnhancedRendering ? currentPreset.ambientIntensity * 1.5 : currentPreset.ambientIntensity}
+          intensity={useEnhancedRendering ? currentPreset.ambientIntensity * 1.3 : currentPreset.ambientIntensity}
         />
 
         <directionalLight
           ref={lightRef}
           position={mainLightPos}
-          intensity={useEnhancedRendering ? currentPreset.mainLight.intensity * 1.3 : currentPreset.mainLight.intensity}
+          intensity={useEnhancedRendering ? currentPreset.mainLight.intensity * 1.5 : currentPreset.mainLight.intensity}
           color={currentPreset.mainLight.color}
           castShadow
           shadow-mapSize-width={shadowMapSize}
           shadow-mapSize-height={shadowMapSize}
-          shadow-camera-far={50}
+          shadow-camera-far={60}
           shadow-camera-near={0.1}
-          shadow-camera-left={-15}
-          shadow-camera-right={15}
-          shadow-camera-top={15}
-          shadow-camera-bottom={-15}
+          shadow-camera-left={-20}
+          shadow-camera-right={20}
+          shadow-camera-top={20}
+          shadow-camera-bottom={-20}
           shadow-bias={shadowBias}
-          shadow-normalBias={useEnhancedRendering ? 0.02 : 0.05}
+          shadow-normalBias={useEnhancedRendering ? 0.015 : 0.05}
           shadow-radius={shadowRadius}
         />
 
         <directionalLight
           ref={fillLightRef}
           position={fillLightPos}
-          intensity={useEnhancedRendering ? currentPreset.fillLight.intensity * 1.2 : currentPreset.fillLight.intensity}
+          intensity={useEnhancedRendering ? currentPreset.fillLight.intensity * 1.4 : currentPreset.fillLight.intensity}
           color={currentPreset.fillLight.color}
           castShadow={useEnhancedRendering}
-          shadow-mapSize-width={useEnhancedRendering ? 4096 : 1024}
-          shadow-mapSize-height={useEnhancedRendering ? 4096 : 1024}
+          shadow-mapSize-width={useEnhancedRendering ? 8192 : 1024}
+          shadow-mapSize-height={useEnhancedRendering ? 8192 : 1024}
           shadow-bias={shadowBias}
+          shadow-radius={shadowRadius}
         />
 
         <spotLight
           ref={spotLightRef}
           position={spotLightPos}
-          intensity={useEnhancedRendering ? currentPreset.spotLight.intensity * 1.5 : currentPreset.spotLight.intensity}
+          intensity={useEnhancedRendering ? currentPreset.spotLight.intensity * 1.8 : currentPreset.spotLight.intensity}
           color={currentPreset.spotLight.color}
-          angle={0.6}
-          penumbra={1}
+          angle={currentPreset.spotLight.angle}
+          penumbra={0.8}
           castShadow={useEnhancedRendering}
-          shadow-mapSize-width={useEnhancedRendering ? 4096 : 1024}
-          shadow-mapSize-height={useEnhancedRendering ? 4096 : 1024}
+          shadow-mapSize-width={useEnhancedRendering ? 8192 : 1024}
+          shadow-mapSize-height={useEnhancedRendering ? 8192 : 1024}
           shadow-bias={shadowBias}
+          shadow-radius={shadowRadius}
+        />
+
+        <directionalLight
+          ref={rimLightRef}
+          position={rimLightPos}
+          intensity={useEnhancedRendering ? currentPreset.rimLight.intensity * 1.6 : currentPreset.rimLight.intensity}
+          color={currentPreset.rimLight.color}
+          castShadow={false}
         />
 
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
           <planeGeometry args={[100, 100]} />
           <shadowMaterial
-            opacity={useEnhancedRendering ? (theme === "light" ? 0.4 : 0.6) : theme === "light" ? 0.3 : 0.5}
+            opacity={useEnhancedRendering ? (theme === "light" ? 0.5 : 0.7) : theme === "light" ? 0.3 : 0.5}
             transparent
           />
         </mesh>
@@ -837,9 +853,9 @@ export function ModelViewer({
 
         {useEnhancedRendering && (
           <EffectComposer>
-            <DepthOfField focusDistance={0.02} focalLength={0.05} bokehScale={3} height={480} />
-            <SSAO samples={31} radius={0.1} intensity={40} luminanceInfluence={0.6} color="black" />
-            <Bloom intensity={0.3} luminanceThreshold={0.9} luminanceSmoothing={0.9} />
+            <DepthOfField focusDistance={0.015} focalLength={0.08} bokehScale={4} height={720} />
+            <SSAO samples={64} radius={0.08} intensity={50} luminanceInfluence={0.5} color="black" />
+            <Bloom intensity={0.5} luminanceThreshold={0.85} luminanceSmoothing={0.95} />
           </EffectComposer>
         )}
       </Canvas>
