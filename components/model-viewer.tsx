@@ -279,12 +279,30 @@ export function ModelViewer({
           const url = allModelUrls[i]
           useGLTF.preload(url)
           setDisplayedModelUrl(url)
-          await new Promise((resolve) => setTimeout(resolve, 2000))
-          await new Promise((resolve) => setTimeout(resolve, 500))
         } else {
           onNavigateToChair!(i)
-          await new Promise((resolve) => setTimeout(resolve, 2000))
-          await new Promise((resolve) => setTimeout(resolve, 500))
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5000))
+
+        let modelLoaded = false
+        for (let attempt = 0; attempt < 20; attempt++) {
+          let hasMeshes = false
+          scene.traverse((obj) => {
+            if (obj instanceof THREE.Mesh && obj.visible) {
+              hasMeshes = true
+            }
+          })
+          if (hasMeshes) {
+            modelLoaded = true
+            console.log(`[v0] Model loaded for chair ${i} after ${attempt + 1} attempts`)
+            break
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200))
+        }
+
+        if (!modelLoaded) {
+          console.warn(`[v0] Model may not have fully loaded for chair ${i}, capturing anyway`)
         }
 
         // Calculate model bounds and position camera
@@ -315,8 +333,7 @@ export function ModelViewer({
           }
         }
 
-        // Render multiple frames to ensure model is visible
-        for (let frame = 0; frame < 10; frame++) {
+        for (let frame = 0; frame < 15; frame++) {
           gl.render(scene, camera)
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
@@ -404,12 +421,15 @@ export function ModelViewer({
       >
         <color attach="background" args={[theme === "dark" ? "#000000" : "#ffffff"]} />
 
-        {/* Lighting */}
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 5, 5]} intensity={1} castShadow />
-        <directionalLight position={[-5, 3, -5]} intensity={0.5} />
-        <spotLight position={[0, 10, 0]} intensity={0.8} angle={0.3} penumbra={1} castShadow />
-        <directionalLight position={[0, 5, -10]} intensity={0.3} />
+        <ambientLight intensity={0.3} />
+        {/* Main key light - strong from front-right-top */}
+        <directionalLight position={[10, 10, 5]} intensity={1.5} castShadow />
+        {/* Fill light - softer from front-left */}
+        <directionalLight position={[-8, 5, 3]} intensity={0.6} />
+        {/* Rim light - from back to create edge highlights */}
+        <directionalLight position={[0, 3, -10]} intensity={0.8} />
+        {/* Spot light - from top for additional highlights */}
+        <spotLight position={[0, 15, 0]} intensity={1.2} angle={0.4} penumbra={1} castShadow />
 
         {/* Model */}
         <Suspense fallback={null}>
