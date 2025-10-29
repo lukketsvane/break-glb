@@ -278,37 +278,16 @@ export function ModelViewer({
           const url = allModelUrls[i]
           console.log(`[v0] Preloading model: ${url}`)
           await useGLTF.preload(url)
-          console.log(`[v0] Model preloaded, setting displayed URL`)
+          console.log(`[v0] Setting displayed URL: ${url}`)
           setDisplayedModelUrl(url)
         } else {
           onNavigateToChair!(i)
         }
 
-        console.log(`[v0] Waiting for model to render...`)
-        await new Promise((resolve) => setTimeout(resolve, 8000))
+        console.log(`[v0] Waiting 15 seconds for model to fully load and render...`)
+        await new Promise((resolve) => setTimeout(resolve, 15000))
 
-        let modelLoaded = false
-        for (let attempt = 0; attempt < 40; attempt++) {
-          let hasMeshes = false
-          scene.traverse((obj) => {
-            if (obj instanceof THREE.Mesh && obj.visible) {
-              hasMeshes = true
-            }
-          })
-          if (hasMeshes) {
-            modelLoaded = true
-            console.log(`[v0] Model confirmed visible for chair ${i} after ${attempt + 1} attempts`)
-            break
-          }
-          await new Promise((resolve) => setTimeout(resolve, 300))
-        }
-
-        if (!modelLoaded) {
-          console.error(`[v0] Model failed to load for chair ${i} after 40 attempts, skipping`)
-          continue
-        }
-
-        // Calculate model bounds and position camera
+        // Calculate model bounds and position camera at 45-degree angle
         const modelBox = new THREE.Box3()
         scene.traverse((obj) => {
           if (obj instanceof THREE.Mesh && obj.geometry) {
@@ -336,7 +315,8 @@ export function ModelViewer({
           }
         }
 
-        for (let frame = 0; frame < 15; frame++) {
+        console.log(`[v0] Rendering frames for chair ${i}`)
+        for (let frame = 0; frame < 20; frame++) {
           gl.render(scene, camera)
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
@@ -366,7 +346,7 @@ export function ModelViewer({
         const currentUrl = allModelUrls.length > 0 ? allModelUrls[i] : displayedModelUrl
         if (currentUrl) {
           loadedModelUrls.push(currentUrl)
-          if (loadedModelUrls.length > 5) {
+          if (loadedModelUrls.length > 3) {
             const urlToClear = loadedModelUrls.shift()
             if (urlToClear) {
               console.log(`[v0] Clearing model from cache: ${urlToClear}`)
@@ -378,7 +358,7 @@ export function ModelViewer({
         // Update progress
         setPngProgress(Math.round(((i + 1) / modelsToProcess.length) * 100))
 
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        await new Promise((resolve) => setTimeout(resolve, 200))
       }
 
       console.log("[v0] Clearing all remaining models from cache")
