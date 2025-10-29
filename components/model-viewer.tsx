@@ -666,6 +666,9 @@ export function ModelViewer({
 
   const [autoRotateSpeed, setAutoRotateSpeed] = useState(1.0)
 
+  const [isGeneratingGif, setIsGeneratingGif] = useState(false)
+  const [gifProgress, setGifProgress] = useState(0)
+
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
   const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 18, 0])
@@ -1165,12 +1168,130 @@ export function ModelViewer({
         if (onToggleExplode) {
           onToggleExplode()
         }
+      } else if (e.key === "j" || e.key === "J") {
+        e.preventDefault()
+        if (!isGeneratingGif) {
+          generateRotationGif()
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode, autoRotate, autoRotateSpeed]) // Added onToggleExplode and autoRotateSpeed to dependencies
+  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode, autoRotate, autoRotateSpeed, isGeneratingGif]) // Added onToggleExplode and autoRotateSpeed to dependencies
+
+  const generateRotationGif = async () => {
+    if (!glRef.current || !cameraRef.current || !controlsRef.current) {
+      console.error("[v0] Cannot generate GIF: missing refs")
+      return
+    }
+
+    setIsGeneratingGif(true)
+    setGifProgress(0)
+
+    try {
+      const gl = glRef.current
+      const camera = cameraRef.current
+      const controls = controlsRef.current as any
+      const scene = gl.scene
+
+      // Store original state
+      const originalAutoRotate = autoRotate
+      const originalBackground = scene.background
+      const originalCameraPosition = camera.position.clone()
+      const originalTarget = controls.target.clone()
+
+      // Disable auto-rotate and set transparent background
+      setAutoRotate(false)
+      scene.background = null
+
+      // GIF settings
+      const totalFrames = 60 // 60 frames for smooth rotation
+      const width = 800
+      const height = 800
+      const quality = 10 // 1-30, lower is better quality but slower
+      const delay = 50 // 50ms per frame = 20fps
+
+      // Dynamic import of gif.js
+      const GIF = (await import("gif.js")).default
+
+      const gif = new GIF({
+        workers: 2,
+        quality: quality,
+        width: width,
+        height: height,
+        workerScript: "/gif.worker.js", // We'll need to add this to public folder
+      })
+
+      // Calculate rotation step
+      const rotationStep = (Math.PI * 2) / totalFrames
+
+      // Capture frames
+      for (let i = 0; i < totalFrames; i++) {
+        // Rotate camera around the model
+        const angle = i * rotationStep
+        const radius = originalCameraPosition.length()
+        camera.position.x = Math.cos(angle) * radius
+        camera.position.z = Math.sin(angle) * radius
+        camera.position.y = originalCameraPosition.y
+        controls.target.copy(originalTarget)
+        controls.update()
+
+        // Render frame
+        gl.render(scene, camera)
+
+        // Capture frame
+        const canvas = gl.domElement
+        const frameCanvas = document.createElement("canvas")
+        frameCanvas.width = width
+        frameCanvas.height = height
+        const ctx = frameCanvas.getContext("2d")
+
+        if (ctx) {
+          // Draw the frame scaled to desired size
+          ctx.drawImage(canvas, 0, 0, width, height)
+          gif.addFrame(frameCanvas, { delay: delay, copy: true })
+        }
+
+        // Update progress
+        setGifProgress(Math.round(((i + 1) / totalFrames) * 50)) // First 50% is capturing
+
+        // Small delay to allow rendering
+        await new Promise((resolve) => setTimeout(resolve, 16))
+      }
+
+      // Restore original state
+      camera.position.copy(originalCameraPosition)
+      controls.target.copy(originalTarget)
+      controls.update()
+      scene.background = originalBackground
+      setAutoRotate(originalAutoRotate)
+
+      // Render GIF
+      gif.on("progress", (progress: number) => {
+        setGifProgress(50 + Math.round(progress * 50)) // Last 50% is encoding
+      })
+
+      gif.on("finished", (blob: Blob) => {
+        // Download the GIF
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `chair-${chairIndex}-rotation-${Date.now()}.gif`
+        link.click()
+        URL.revokeObjectURL(url)
+
+        setIsGeneratingGif(false)
+        setGifProgress(0)
+      })
+
+      gif.render()
+    } catch (error) {
+      console.error("[v0] GIF generation failed:", error)
+      setIsGeneratingGif(false)
+      setGifProgress(0)
+    }
+  }
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const currentBackground = BACKGROUNDS[backgroundIndex]
@@ -1192,6 +1313,15 @@ export function ModelViewer({
 
   return (
     <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
+      {isGeneratingGif && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-black/80 text-white px-6 py-3 rounded-lg backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium">Generating GIF... {gifProgress}%</span>
+          </div>
+        </div>
+      )}
+
       <Canvas
         camera={
           isOrthographic

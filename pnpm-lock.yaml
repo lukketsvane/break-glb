@@ -143,6 +143,9 @@ importers:
       geist:
         specifier: ^1.3.1
         version: 1.3.1(next@15.5.4(@babel/core@7.28.4)(babel-plugin-react-compiler@1.0.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0))
+      gif.js:
+        specifier: latest
+        version: 0.2.0
       input-otp:
         specifier: 1.4.1
         version: 1.4.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -2932,6 +2935,9 @@ packages:
   getenv@2.0.0:
     resolution: {integrity: sha512-VilgtJj/ALgGY77fiLam5iD336eSWi96Q15JSAG1zi8NRBysm3LXKdGnHb4m5cuyxvOLQQKWpBZAT6ni4FI2iQ==}
     engines: {node: '>=6'}
+
+  gif.js@0.2.0:
+    resolution: {integrity: sha512-bYxCoT8OZKmbxY8RN4qDiYuj4nrQDTzgLRcFVovyona1PTWNePzI4nzOmotnlOFIzTk/ZxAHtv+TfVLiBWj/hw==}
 
   glob@10.4.5:
     resolution: {integrity: sha512-7Bv8RF0k6xjo7d4A/PxYLbUCfb6c+Vpd2/mB2yRDlew7Jb5hEXiCD9ibfO7wpk8i4sevK6DFny9h7EYbM3/sHg==}
@@ -7675,6 +7681,8 @@ snapshots:
   get-package-type@0.1.0: {}
 
   getenv@2.0.0: {}
+
+  gif.js@0.2.0: {}
 
   glob@10.4.5:
     dependencies:
