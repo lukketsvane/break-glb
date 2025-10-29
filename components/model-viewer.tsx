@@ -680,7 +680,7 @@ export function ModelViewer({
   const controlsRef = useRef<any>(null)
   const glRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
-  const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 5, 2.75))
+  const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 3, 2.75))
   const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
