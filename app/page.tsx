@@ -8,7 +8,6 @@ import { Zap, ChevronLeft, ChevronRight, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ModelViewer } from "@/components/model-viewer"
 import { ChairInfoOverlay } from "@/components/chair-info-overlay"
-import { useGLTF } from "@react-three/drei"
 import { getChairModels, getChairData } from "./actions"
 
 const isMobile = () => {
@@ -19,8 +18,9 @@ const isMobile = () => {
 export default function Home() {
   const [chairIndex, setChairIndex] = useState(() => {
     if (typeof window === "undefined") return 0
-    const hash = window.location.hash.slice(1)
-    const index = Number.parseInt(hash) || 0
+    const hash = window.location.hash.slice(1) // Remove '#'
+    // Support both 'c0' format and plain '0' for backwards compatibility
+    const index = hash.startsWith("c") ? Number.parseInt(hash.slice(1)) || 0 : Number.parseInt(hash) || 0
     return index
   })
 
@@ -124,14 +124,14 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.location.hash = String(chairIndex)
+      window.location.hash = `c${chairIndex}`
     }
   }, [chairIndex])
 
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash.slice(1)
-      const index = Number.parseInt(hash) || 0
+      const hash = window.location.hash.slice(1) // Remove '#'
+      const index = hash.startsWith("c") ? Number.parseInt(hash.slice(1)) || 0 : Number.parseInt(hash) || 0
       if (index !== chairIndex && index >= 0 && index < chairModels.length) {
         setChairIndex(index)
       }
@@ -142,43 +142,15 @@ export default function Home() {
   }, [chairIndex, chairModels.length])
 
   useEffect(() => {
-    if (chairModels.length === 0) return
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", () => {
+        modelCacheManager.clearAll()
+      })
+    }
 
-    const mobile = isMobile()
-    const currentModel = chairModels[chairIndex]
-
-    if (!currentModel) return
-
-    modelCacheManager.addToCache(currentModel)
-    useGLTF.preload(currentModel)
-
-    const preloadRange = mobile ? 1 : 3
-
-    setTimeout(
-      () => {
-        for (let i = 1; i <= preloadRange; i++) {
-          const prevIndex = chairIndex - i
-          const nextIndex = chairIndex + i
-
-          if (prevIndex >= 0 && chairModels[prevIndex]) {
-            modelCacheManager.addToCache(chairModels[prevIndex])
-            useGLTF.preload(chairModels[prevIndex])
-          }
-          if (nextIndex < chairModels.length && chairModels[nextIndex]) {
-            modelCacheManager.addToCache(chairModels[nextIndex])
-            useGLTF.preload(chairModels[nextIndex])
-          }
-        }
-      },
-      mobile ? 500 : 100,
-    )
-  }, [chairIndex, chairModels])
-
-  useEffect(() => {
     return () => {
-      // Clear cache when component unmounts (e.g., navigating away)
       if (typeof window !== "undefined") {
-        window.addEventListener("beforeunload", () => {
+        window.removeEventListener("beforeunload", () => {
           modelCacheManager.clearAll()
         })
       }

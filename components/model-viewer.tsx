@@ -1067,6 +1067,16 @@ export function ModelViewer({
         e.preventDefault()
         setBackgroundIndex((prev) => (prev + 1) % BACKGROUNDS.length)
       }
+      // N key - Randomize all light directions
+      else if (e.key === "n" || e.key === "N") {
+        e.preventDefault()
+        const preset = LIGHTING_PRESETS[lightingPreset]
+        setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
+        setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
+        setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+        setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
+        setHasManualLightControl(true)
+      }
       // R key - Reset camera to default position
       else if (e.key === "r" || e.key === "R") {
         e.preventDefault()
@@ -1322,7 +1332,12 @@ export function ModelViewer({
           minDistance={1}
           maxDistance={15}
           autoRotate={autoRotate}
-          autoRotateSpeed={autoRotateSpeed} // Use dynamic speed instead of hardcoded 1.0
+          autoRotateSpeed={autoRotateSpeed}
+          mouseButtons={{
+            LEFT: THREE.MOUSE.ROTATE,
+            MIDDLE: THREE.MOUSE.DOLLY,
+            RIGHT: undefined, // Disable right-click panning
+          }}
         />
 
         {useEnhancedRendering && (
