@@ -77,7 +77,7 @@ function Model({ url, isExploded, lightPosition, opacity = 1, chairIndex }: Mode
 
   useEffect(() => {
     if (groupRef.current) {
-      const rotationDegrees = chairIndex * 1.4
+      const rotationDegrees = chairIndex * 2.4
       const rotationRadians = (rotationDegrees * Math.PI) / 180
       groupRef.current.rotation.y = rotationRadians
     }
