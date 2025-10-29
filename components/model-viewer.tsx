@@ -274,19 +274,21 @@ export function ModelViewer({
       for (let i = 0; i < modelsToProcess.length; i++) {
         console.log(`[v0] Generating PNG for chair ${i}/${modelsToProcess.length}`)
 
-        // Navigate to the chair
         if (allModelUrls.length > 0) {
           const url = allModelUrls[i]
-          useGLTF.preload(url)
+          console.log(`[v0] Preloading model: ${url}`)
+          await useGLTF.preload(url)
+          console.log(`[v0] Model preloaded, setting displayed URL`)
           setDisplayedModelUrl(url)
         } else {
           onNavigateToChair!(i)
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 5000))
+        console.log(`[v0] Waiting for model to render...`)
+        await new Promise((resolve) => setTimeout(resolve, 8000))
 
         let modelLoaded = false
-        for (let attempt = 0; attempt < 20; attempt++) {
+        for (let attempt = 0; attempt < 40; attempt++) {
           let hasMeshes = false
           scene.traverse((obj) => {
             if (obj instanceof THREE.Mesh && obj.visible) {
@@ -295,14 +297,15 @@ export function ModelViewer({
           })
           if (hasMeshes) {
             modelLoaded = true
-            console.log(`[v0] Model loaded for chair ${i} after ${attempt + 1} attempts`)
+            console.log(`[v0] Model confirmed visible for chair ${i} after ${attempt + 1} attempts`)
             break
           }
-          await new Promise((resolve) => setTimeout(resolve, 200))
+          await new Promise((resolve) => setTimeout(resolve, 300))
         }
 
         if (!modelLoaded) {
-          console.warn(`[v0] Model may not have fully loaded for chair ${i}, capturing anyway`)
+          console.error(`[v0] Model failed to load for chair ${i} after 40 attempts, skipping`)
+          continue
         }
 
         // Calculate model bounds and position camera
