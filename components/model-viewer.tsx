@@ -1181,8 +1181,16 @@ export function ModelViewer({
   }, [lightingPreset, chairIndex, materialPreset, onToggleExplode, autoRotate, autoRotateSpeed, isGeneratingGif]) // Added onToggleExplode and autoRotateSpeed to dependencies
 
   const generateRotationGif = async () => {
-    if (!glRef.current || !cameraRef.current || !controlsRef.current) {
-      console.error("[v0] Cannot generate GIF: missing refs")
+    console.log("[v0] GIF generation started")
+    console.log("[v0] glRef.current:", !!glRef.current)
+    console.log("[v0] cameraRef.current:", !!cameraRef.current)
+    console.log("[v0] controlsRef.current:", !!controlsRef.current)
+
+    if (!glRef.current || !cameraRef.current) {
+      console.error("[v0] Cannot generate GIF: missing required refs", {
+        gl: !!glRef.current,
+        camera: !!cameraRef.current,
+      })
       return
     }
 
@@ -1192,14 +1200,14 @@ export function ModelViewer({
     try {
       const gl = glRef.current
       const camera = cameraRef.current
-      const controls = controlsRef.current as any
+      const controls = controlsRef.current as any // May be null
       const scene = gl.scene
 
       // Store original state
       const originalAutoRotate = autoRotate
       const originalBackground = scene.background
       const originalCameraPosition = camera.position.clone()
-      const originalTarget = controls.target.clone()
+      const originalTarget = controls ? controls.target.clone() : new THREE.Vector3(0, 0, 0)
 
       // Disable auto-rotate and set transparent background
       setAutoRotate(false)
@@ -1220,7 +1228,7 @@ export function ModelViewer({
         quality: quality,
         width: width,
         height: height,
-        workerScript: "/gif.worker.js", // We'll need to add this to public folder
+        workerScript: "/gif.worker.js",
       })
 
       // Calculate rotation step
@@ -1234,8 +1242,11 @@ export function ModelViewer({
         camera.position.x = Math.cos(angle) * radius
         camera.position.z = Math.sin(angle) * radius
         camera.position.y = originalCameraPosition.y
-        controls.target.copy(originalTarget)
-        controls.update()
+
+        if (controls) {
+          controls.target.copy(originalTarget)
+          controls.update()
+        }
 
         // Render frame
         gl.render(scene, camera)
@@ -1262,8 +1273,10 @@ export function ModelViewer({
 
       // Restore original state
       camera.position.copy(originalCameraPosition)
-      controls.target.copy(originalTarget)
-      controls.update()
+      if (controls) {
+        controls.target.copy(originalTarget)
+        controls.update()
+      }
       scene.background = originalBackground
       setAutoRotate(originalAutoRotate)
 
@@ -1283,6 +1296,7 @@ export function ModelViewer({
 
         setIsGeneratingGif(false)
         setGifProgress(0)
+        console.log("[v0] GIF generation complete")
       })
 
       gif.render()
