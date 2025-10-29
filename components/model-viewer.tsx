@@ -13,6 +13,8 @@ interface ModelViewerProps {
   theme: "light" | "dark"
   performanceMode?: boolean
   onToggleExplode?: () => void // Added callback for explode toggle
+  totalChairs?: number
+  onNavigateToChair?: (index: number) => void
 }
 
 interface ModelProps {
@@ -20,7 +22,6 @@ interface ModelProps {
   isExploded: boolean
   lightPosition: THREE.Vector3
   opacity?: number
-  chairIndex: number // Added chairIndex prop
 }
 
 interface Part {
@@ -47,7 +48,7 @@ interface Part {
   dragVelocityHistory: THREE.Vector3[]
 }
 
-function Model({ url, isExploded, lightPosition, opacity = 1, chairIndex }: ModelProps) {
+function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
   const { scene } = useGLTF(url)
   const [isLoaded, setIsLoaded] = useState(false)
   const groupRef = useRef<THREE.Group>(null)
@@ -74,14 +75,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1, chairIndex }: Mode
   useEffect(() => {
     isExplodedRef.current = isExploded
   }, [isExploded])
-
-  useEffect(() => {
-    if (groupRef.current) {
-      const rotationDegrees = chairIndex * 2.4
-      const rotationRadians = (rotationDegrees * Math.PI) / 180
-      groupRef.current.rotation.y = rotationRadians
-    }
-  }, [chairIndex])
 
   useEffect(() => {
     if (!scene) return
@@ -661,6 +654,8 @@ export function ModelViewer({
   theme,
   performanceMode = false,
   onToggleExplode, // Added onToggleExplode prop
+  totalChairs = 0,
+  onNavigateToChair,
 }: ModelViewerProps & { theme: "light" | "dark" }) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
@@ -674,6 +669,9 @@ export function ModelViewer({
   const [isOrthographic, setIsOrthographic] = useState(false)
 
   const [autoRotateSpeed, setAutoRotateSpeed] = useState(1.0)
+
+  const [isGeneratingPngs, setIsGeneratingPngs] = useState(false)
+  const [pngProgress, setPngProgress] = useState(0)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -689,8 +687,8 @@ export function ModelViewer({
   const controlsRef = useRef<any>(null)
   const glRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
-  const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 3, 2.75))
-  const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 2))
+  const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 5, 2.75))
+  const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
@@ -1118,10 +1116,10 @@ export function ModelViewer({
       // S key - Screenshot
       else if (e.key === "s" || e.key === "S") {
         e.preventDefault()
-        if (glRef.current && cameraRef.current && sceneRef.current) {
+        if (glRef.current && cameraRef.current) {
           try {
             const gl = glRef.current
-            const scene = sceneRef.current
+            const scene = gl.scene
 
             // Store original background
             const originalBackground = scene.background
@@ -1175,12 +1173,154 @@ export function ModelViewer({
         if (onToggleExplode) {
           onToggleExplode()
         }
+      } else if (e.key === "j" || e.key === "J") {
+        e.preventDefault()
+        if (!isGeneratingPngs) {
+          generatePngSequence()
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode, autoRotate, autoRotateSpeed])
+  }, [
+    lightingPreset,
+    chairIndex,
+    materialPreset,
+    onToggleExplode,
+    autoRotate,
+    autoRotateSpeed,
+    isGeneratingPngs, // Updated dependency
+    totalChairs,
+    onNavigateToChair,
+  ]) // Added onToggleExplode and autoRotateSpeed to dependencies
+
+  const generatePngSequence = async () => {
+    console.log("[v0] PNG sequence generation started")
+
+    if (!glRef.current || !cameraRef.current || !sceneRef.current) {
+      console.error("[v0] Cannot generate PNGs: missing required refs")
+      return
+    }
+
+    if (!onNavigateToChair || totalChairs === 0) {
+      console.error("[v0] Cannot generate PNGs: missing navigation callback or totalChairs")
+      return
+    }
+
+    setIsGeneratingPngs(true)
+    setPngProgress(0)
+
+    try {
+      const gl = glRef.current
+      const camera = cameraRef.current
+      const scene = sceneRef.current
+
+      // Store original state
+      const originalChairIndex = chairIndex
+      const originalBackground = scene.background
+      const originalSize = { width: gl.domElement.width, height: gl.domElement.height }
+
+      // Set transparent background
+      scene.background = null
+
+      // High-res square dimensions (1:1 aspect ratio)
+      const size = 2048
+
+      // Set renderer size to square
+      gl.setSize(size, size, false)
+
+      // Update camera aspect ratio for square viewport
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = 1 // Square aspect ratio
+        camera.updateProjectionMatrix()
+      }
+
+      const loadedModelUrls: string[] = []
+
+      // Generate PNG for each chair
+      for (let i = 0; i < totalChairs; i++) {
+        console.log(`[v0] Generating PNG for chair ${i}/${totalChairs}`)
+
+        // Navigate to chair
+        onNavigateToChair(i)
+
+        // Wait 5 seconds for model to load and render
+        console.log(`[v0] Waiting 5 seconds for chair ${i} to load...`)
+        await new Promise((resolve) => setTimeout(resolve, 12000))
+
+        // Render a few frames to ensure everything is stable
+        for (let frame = 0; frame < 10; frame++) {
+          gl.render(scene, camera)
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+
+        console.log(`[v0] Capturing PNG for chair ${i}`)
+
+        // Capture and download PNG
+        const canvas = gl.domElement
+        await new Promise<void>((resolve) => {
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement("a")
+              link.href = url
+              link.download = `chair-${i.toString().padStart(4, "0")}.png`
+              link.click()
+              URL.revokeObjectURL(url)
+              console.log(`[v0] Downloaded PNG for chair ${i}`)
+            } else {
+              console.error(`[v0] Failed to create blob for chair ${i}`)
+            }
+            resolve()
+          }, "image/png")
+        })
+
+        // Get the current model URL from displayedModelUrl state
+        if (displayedModelUrl) {
+          loadedModelUrls.push(displayedModelUrl)
+          // Clear models older than 5 chairs ago to free memory
+          if (loadedModelUrls.length > 5) {
+            const urlToClear = loadedModelUrls.shift()
+            if (urlToClear) {
+              console.log(`[v0] Clearing model from cache: ${urlToClear}`)
+              useGLTF.clear(urlToClear)
+            }
+          }
+        }
+
+        // Update progress
+        setPngProgress(Math.round(((i + 1) / totalChairs) * 100))
+
+        // Small delay between downloads to prevent browser blocking
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+
+      console.log("[v0] Clearing all remaining models from cache")
+      loadedModelUrls.forEach((url) => {
+        useGLTF.clear(url)
+      })
+
+      // Restore original state
+      onNavigateToChair(originalChairIndex)
+      scene.background = originalBackground
+      gl.setSize(originalSize.width, originalSize.height, false)
+
+      // Restore camera aspect ratio
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = originalSize.width / originalSize.height
+        camera.updateProjectionMatrix()
+      }
+
+      setIsGeneratingPngs(false)
+      setPngProgress(0)
+      console.log("[v0] PNG sequence generation complete")
+    } catch (error) {
+      console.error("[v0] PNG generation failed:", error)
+      setIsGeneratingPngs(false)
+      setPngProgress(0)
+    }
+  }
 
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
   const currentBackground = BACKGROUNDS[backgroundIndex]
@@ -1202,6 +1342,15 @@ export function ModelViewer({
 
   return (
     <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
+      {isGeneratingPngs && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-black/80 text-white px-6 py-3 rounded-lg backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium">Generating PNGs... {pngProgress}%</span>
+          </div>
+        </div>
+      )}
+
       <Canvas
         camera={
           isOrthographic
@@ -1320,7 +1469,6 @@ export function ModelViewer({
               opacity={1 - transitionProgress}
               wireframeMode={wireframeMode}
               materialPreset={materialPreset}
-              chairIndex={chairIndex} // Pass chairIndex to ModelWithWireframe
             />
           )}
           <ModelWithWireframe
@@ -1331,7 +1479,6 @@ export function ModelViewer({
             opacity={transitionProgress}
             wireframeMode={wireframeMode}
             materialPreset={materialPreset}
-            chairIndex={chairIndex} // Pass chairIndex to ModelWithWireframe
           />
         </Suspense>
 
@@ -1447,7 +1594,6 @@ function ModelWithWireframe({
   opacity,
   wireframeMode,
   materialPreset,
-  chairIndex, // Added chairIndex prop
 }: ModelProps & { wireframeMode: boolean; materialPreset: MaterialPreset }) {
   const { scene } = useGLTF(url)
   const originalMaterialsRef = useRef<Map<THREE.Material, { roughness: number; metalness: number }>>(new Map())
@@ -1502,8 +1648,6 @@ function ModelWithWireframe({
     })
   }, [scene, wireframeMode, materialPreset]) // Depend on scene, wireframeMode and materialPreset
 
-  // Pass the opacity and chairIndex props to the underlying Model component
-  return (
-    <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} chairIndex={chairIndex} />
-  )
+  // Pass the opacity prop to the underlying Model component
+  return <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} />
 }
