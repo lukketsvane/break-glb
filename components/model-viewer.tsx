@@ -13,6 +13,8 @@ interface ModelViewerProps {
   theme: "light" | "dark"
   performanceMode?: boolean
   onToggleExplode?: () => void // Added callback for explode toggle
+  totalChairs?: number
+  onNavigateToChair?: (index: number) => void
 }
 
 interface ModelProps {
@@ -652,6 +654,8 @@ export function ModelViewer({
   theme,
   performanceMode = false,
   onToggleExplode, // Added onToggleExplode prop
+  totalChairs = 0,
+  onNavigateToChair,
 }: ModelViewerProps & { theme: "light" | "dark" }) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
@@ -666,8 +670,8 @@ export function ModelViewer({
 
   const [autoRotateSpeed, setAutoRotateSpeed] = useState(1.0)
 
-  const [isGeneratingGif, setIsGeneratingGif] = useState(false)
-  const [gifProgress, setGifProgress] = useState(0)
+  const [isGeneratingPngs, setIsGeneratingPngs] = useState(false)
+  const [pngProgress, setPngProgress] = useState(0)
 
   const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
   const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
@@ -1171,141 +1175,153 @@ export function ModelViewer({
         }
       } else if (e.key === "j" || e.key === "J") {
         e.preventDefault()
-        if (!isGeneratingGif) {
-          generateRotationGif()
+        if (!isGeneratingPngs) {
+          generatePngSequence()
         }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightingPreset, chairIndex, materialPreset, onToggleExplode, autoRotate, autoRotateSpeed, isGeneratingGif]) // Added onToggleExplode and autoRotateSpeed to dependencies
+  }, [
+    lightingPreset,
+    chairIndex,
+    materialPreset,
+    onToggleExplode,
+    autoRotate,
+    autoRotateSpeed,
+    isGeneratingPngs, // Updated dependency
+    totalChairs,
+    onNavigateToChair,
+  ]) // Added onToggleExplode and autoRotateSpeed to dependencies
 
-  const generateRotationGif = async () => {
-    console.log("[v0] GIF generation started")
-    console.log("[v0] glRef.current:", !!glRef.current)
-    console.log("[v0] cameraRef.current:", !!cameraRef.current)
-    console.log("[v0] sceneRef.current:", !!sceneRef.current)
+  const generatePngSequence = async () => {
+    console.log("[v0] PNG sequence generation started")
 
     if (!glRef.current || !cameraRef.current || !sceneRef.current) {
-      console.error("[v0] Cannot generate GIF: missing required refs", {
-        gl: !!glRef.current,
-        camera: !!cameraRef.current,
-        scene: !!sceneRef.current,
-      })
+      console.error("[v0] Cannot generate PNGs: missing required refs")
       return
     }
 
-    setIsGeneratingGif(true)
-    setGifProgress(0)
+    if (!onNavigateToChair || totalChairs === 0) {
+      console.error("[v0] Cannot generate PNGs: missing navigation callback or totalChairs")
+      return
+    }
+
+    setIsGeneratingPngs(true)
+    setPngProgress(0)
 
     try {
       const gl = glRef.current
       const camera = cameraRef.current
-      const controls = controlsRef.current as any // May be null
       const scene = sceneRef.current
 
       // Store original state
-      const originalAutoRotate = autoRotate
+      const originalChairIndex = chairIndex
       const originalBackground = scene.background
-      const originalCameraPosition = camera.position.clone()
-      const originalTarget = controls ? controls.target.clone() : new THREE.Vector3(0, 0, 0)
+      const originalSize = { width: gl.domElement.width, height: gl.domElement.height }
 
-      // Disable auto-rotate and set transparent background
-      setAutoRotate(false)
+      // Set transparent background
       scene.background = null
 
-      // GIF settings
-      const totalFrames = 60 // 60 frames for smooth rotation
-      const width = 800
-      const height = 800
-      const quality = 10 // 1-30, lower is better quality but slower
-      const delay = 50 // 50ms per frame = 20fps
+      // High-res square dimensions (1:1 aspect ratio)
+      const size = 2048
 
-      // Dynamic import of gif.js
-      const GIF = (await import("gif.js")).default
+      // Set renderer size to square
+      gl.setSize(size, size, false)
 
-      const gif = new GIF({
-        workers: 2,
-        quality: quality,
-        width: width,
-        height: height,
-        workerScript: "/gif.worker.js",
-      })
+      // Update camera aspect ratio for square viewport
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = 1 // Square aspect ratio
+        camera.updateProjectionMatrix()
+      }
 
-      // Calculate rotation step
-      const rotationStep = (Math.PI * 2) / totalFrames
+      // Generate PNG for each chair
+      for (let i = 0; i < totalChairs; i++) {
+        console.log(`[v0] Generating PNG for chair ${i}/${totalChairs}`)
 
-      // Capture frames
-      for (let i = 0; i < totalFrames; i++) {
-        // Rotate camera around the model
-        const angle = i * rotationStep
-        const radius = originalCameraPosition.length()
-        camera.position.x = Math.cos(angle) * radius
-        camera.position.z = Math.sin(angle) * radius
-        camera.position.y = originalCameraPosition.y
+        // Navigate to chair
+        onNavigateToChair(i)
 
-        if (controls) {
-          controls.target.copy(originalTarget)
-          controls.update()
+        // Wait longer for model to load and render (increased from 800ms to 2500ms)
+        await new Promise((resolve) => setTimeout(resolve, 2500))
+
+        // Wait for model to actually appear in the scene
+        let attempts = 0
+        const maxAttempts = 20
+        while (attempts < maxAttempts) {
+          // Check if scene has visible meshes
+          let hasMeshes = false
+          scene.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.visible) {
+              hasMeshes = true
+            }
+          })
+
+          if (hasMeshes) {
+            console.log(`[v0] Model loaded for chair ${i} after ${attempts} attempts`)
+            break
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 100))
+          attempts++
         }
 
-        // Render frame
-        gl.render(scene, camera)
+        if (attempts >= maxAttempts) {
+          console.warn(`[v0] Model may not have loaded for chair ${i}, capturing anyway`)
+        }
 
-        // Capture frame
+        // Render multiple frames to ensure everything is visible
+        for (let frame = 0; frame < 3; frame++) {
+          gl.render(scene, camera)
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        // </CHANGE>
+
+        // Capture and download PNG
         const canvas = gl.domElement
-        const frameCanvas = document.createElement("canvas")
-        frameCanvas.width = width
-        frameCanvas.height = height
-        const ctx = frameCanvas.getContext("2d")
-
-        if (ctx) {
-          // Draw the frame scaled to desired size
-          ctx.drawImage(canvas, 0, 0, width, height)
-          gif.addFrame(frameCanvas, { delay: delay, copy: true })
-        }
+        await new Promise<void>((resolve) => {
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement("a")
+              link.href = url
+              link.download = `chair-${i.toString().padStart(4, "0")}.png`
+              link.click()
+              URL.revokeObjectURL(url)
+              console.log(`[v0] Downloaded PNG for chair ${i}`)
+            } else {
+              console.error(`[v0] Failed to create blob for chair ${i}`)
+            }
+            resolve()
+          }, "image/png")
+        })
 
         // Update progress
-        setGifProgress(Math.round(((i + 1) / totalFrames) * 50)) // First 50% is capturing
+        setPngProgress(Math.round(((i + 1) / totalChairs) * 100))
 
-        // Small delay to allow rendering
-        await new Promise((resolve) => setTimeout(resolve, 16))
+        // Small delay between downloads to prevent browser blocking
+        await new Promise((resolve) => setTimeout(resolve, 100))
       }
 
       // Restore original state
-      camera.position.copy(originalCameraPosition)
-      if (controls) {
-        controls.target.copy(originalTarget)
-        controls.update()
-      }
+      onNavigateToChair(originalChairIndex)
       scene.background = originalBackground
-      setAutoRotate(originalAutoRotate)
+      gl.setSize(originalSize.width, originalSize.height, false)
 
-      // Render GIF
-      gif.on("progress", (progress: number) => {
-        setGifProgress(50 + Math.round(progress * 50)) // Last 50% is encoding
-      })
+      // Restore camera aspect ratio
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = originalSize.width / originalSize.height
+        camera.updateProjectionMatrix()
+      }
 
-      gif.on("finished", (blob: Blob) => {
-        // Download the GIF
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement("a")
-        link.href = url
-        link.download = `chair-${chairIndex}-rotation-${Date.now()}.gif`
-        link.click()
-        URL.revokeObjectURL(url)
-
-        setIsGeneratingGif(false)
-        setGifProgress(0)
-        console.log("[v0] GIF generation complete")
-      })
-
-      gif.render()
+      setIsGeneratingPngs(false)
+      setPngProgress(0)
+      console.log("[v0] PNG sequence generation complete")
     } catch (error) {
-      console.error("[v0] GIF generation failed:", error)
-      setIsGeneratingGif(false)
-      setGifProgress(0)
+      console.error("[v0] PNG generation failed:", error)
+      setIsGeneratingPngs(false)
+      setPngProgress(0)
     }
   }
 
@@ -1329,11 +1345,11 @@ export function ModelViewer({
 
   return (
     <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
-      {isGeneratingGif && (
+      {isGeneratingPngs && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-black/80 text-white px-6 py-3 rounded-lg backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm font-medium">Generating GIF... {gifProgress}%</span>
+            <span className="text-sm font-medium">Generating PNGs... {pngProgress}%</span>
           </div>
         </div>
       )}
