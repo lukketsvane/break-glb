@@ -41,8 +41,8 @@ export default function ModelExploder() {
       0.1,
       1000,
     )
-    camera.position.set(0, 2, 1)
-    camera.lookAt(0, 0, 0)
+    camera.position.set(0, 2, 0.5)
+    camera.lookAt(0, 1, 0)
     cameraRef.current = camera
 
     // Renderer setup
