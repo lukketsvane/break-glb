@@ -20,6 +20,7 @@ interface ModelProps {
   isExploded: boolean
   lightPosition: THREE.Vector3
   opacity?: number
+  chairIndex: number // Added chairIndex prop
 }
 
 interface Part {
@@ -46,7 +47,7 @@ interface Part {
   dragVelocityHistory: THREE.Vector3[]
 }
 
-function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
+function Model({ url, isExploded, lightPosition, opacity = 1, chairIndex }: ModelProps) {
   const { scene } = useGLTF(url)
   const [isLoaded, setIsLoaded] = useState(false)
   const groupRef = useRef<THREE.Group>(null)
@@ -73,6 +74,14 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
   useEffect(() => {
     isExplodedRef.current = isExploded
   }, [isExploded])
+
+  useEffect(() => {
+    if (groupRef.current) {
+      const rotationDegrees = chairIndex * 1.4
+      const rotationRadians = (rotationDegrees * Math.PI) / 180
+      groupRef.current.rotation.y = rotationRadians
+    }
+  }, [chairIndex])
 
   useEffect(() => {
     if (!scene) return
@@ -681,7 +690,7 @@ export function ModelViewer({
   const glRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 3, 2.75))
-  const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
+  const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 2))
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
@@ -1311,6 +1320,7 @@ export function ModelViewer({
               opacity={1 - transitionProgress}
               wireframeMode={wireframeMode}
               materialPreset={materialPreset}
+              chairIndex={chairIndex} // Pass chairIndex to ModelWithWireframe
             />
           )}
           <ModelWithWireframe
@@ -1321,6 +1331,7 @@ export function ModelViewer({
             opacity={transitionProgress}
             wireframeMode={wireframeMode}
             materialPreset={materialPreset}
+            chairIndex={chairIndex} // Pass chairIndex to ModelWithWireframe
           />
         </Suspense>
 
@@ -1436,6 +1447,7 @@ function ModelWithWireframe({
   opacity,
   wireframeMode,
   materialPreset,
+  chairIndex, // Added chairIndex prop
 }: ModelProps & { wireframeMode: boolean; materialPreset: MaterialPreset }) {
   const { scene } = useGLTF(url)
   const originalMaterialsRef = useRef<Map<THREE.Material, { roughness: number; metalness: number }>>(new Map())
@@ -1490,6 +1502,8 @@ function ModelWithWireframe({
     })
   }, [scene, wireframeMode, materialPreset]) // Depend on scene, wireframeMode and materialPreset
 
-  // Pass the opacity prop to the underlying Model component
-  return <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} />
+  // Pass the opacity and chairIndex props to the underlying Model component
+  return (
+    <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} chairIndex={chairIndex} />
+  )
 }
