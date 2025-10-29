@@ -1116,10 +1116,10 @@ export function ModelViewer({
       // S key - Screenshot
       else if (e.key === "s" || e.key === "S") {
         e.preventDefault()
-        if (glRef.current && cameraRef.current) {
+        if (glRef.current && cameraRef.current && sceneRef.current) {
           try {
             const gl = glRef.current
-            const scene = gl.scene
+            const scene = sceneRef.current
 
             // Store original background
             const originalBackground = scene.background
