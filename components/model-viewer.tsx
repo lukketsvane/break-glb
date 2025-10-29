@@ -76,14 +76,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1, chairIndex }: Mode
   }, [isExploded])
 
   useEffect(() => {
-    if (groupRef.current) {
-      const rotationDegrees = chairIndex * (360 / 158)
-      const rotationRadians = (rotationDegrees * Math.PI) / 180
-      groupRef.current.rotation.y = rotationRadians
-    }
-  }, [chairIndex])
-
-  useEffect(() => {
     if (!scene) return
 
     setIsLoaded(true)
@@ -518,10 +510,13 @@ function Model({ url, isExploded, lightPosition, opacity = 1, chairIndex }: Mode
     })
   })
 
+  const rotationDegrees = chairIndex * 2.4
+  const rotationRadians = (rotationDegrees * Math.PI) / 180
+
   if (!isLoaded) return null
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} rotation={[0, rotationRadians, 0]}>
       <primitive object={scene} />
     </group>
   )
