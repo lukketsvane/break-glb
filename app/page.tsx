@@ -350,9 +350,7 @@ export default function Home() {
           chairIndex={chairIndex}
           theme={theme}
           performanceMode={performanceMode}
-          onToggleExplode={handleExplodeToggle} // Added callback for keyboard explode toggle
-          totalChairs={chairModels.length} // Added props for GIF generation
-          onNavigateToChair={navigateToChair} // Added props for GIF generation
+          onToggleExplode={handleExplodeToggle}
         />
 
         {showInfo && chairData && (
