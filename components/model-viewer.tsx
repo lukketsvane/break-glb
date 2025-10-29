@@ -15,6 +15,7 @@ interface ModelViewerProps {
   onToggleExplode?: () => void // Added callback for explode toggle
   totalChairs?: number
   onNavigateToChair?: (index: number) => void
+  allModelUrls?: string[]
 }
 
 interface ModelProps {
@@ -656,6 +657,7 @@ export function ModelViewer({
   onToggleExplode, // Added onToggleExplode prop
   totalChairs = 0,
   onNavigateToChair,
+  allModelUrls = [],
 }: ModelViewerProps & { theme: "light" | "dark" }) {
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
   const [hasManualLightControl, setHasManualLightControl] = useState(false)
@@ -1203,8 +1205,8 @@ export function ModelViewer({
       return
     }
 
-    if (!onNavigateToChair || totalChairs === 0) {
-      console.error("[v0] Cannot generate PNGs: missing navigation callback or totalChairs")
+    if (allModelUrls.length === 0 && (!onNavigateToChair || totalChairs === 0)) {
+      console.error("[v0] Cannot generate PNGs: missing model URLs or navigation callback")
       return
     }
 
@@ -1217,7 +1219,7 @@ export function ModelViewer({
       const scene = sceneRef.current
 
       // Store original state
-      const originalChairIndex = chairIndex
+      const originalModelUrl = displayedModelUrl
       const originalBackground = scene.background
       const originalSize = { width: gl.domElement.width, height: gl.domElement.height }
 
@@ -1237,22 +1239,29 @@ export function ModelViewer({
       }
 
       const loadedModelUrls: string[] = []
+      const modelsToProcess = allModelUrls.length > 0 ? allModelUrls : Array(totalChairs).fill(null)
 
-      // Generate PNG for each chair
-      for (let i = 0; i < totalChairs; i++) {
-        console.log(`[v0] Generating PNG for chair ${i}/${totalChairs}`)
+      for (let i = 0; i < modelsToProcess.length; i++) {
+        console.log(`[v0] Generating PNG for chair ${i}/${modelsToProcess.length}`)
 
-        // Navigate to chair
-        onNavigateToChair(i)
+        if (allModelUrls.length > 0) {
+          const url = allModelUrls[i]
+          // Preload the model
+          useGLTF.preload(url)
+          // Set the model URL directly
+          setDisplayedModelUrl(url)
+          // Wait for model to load (reduced from 5000ms to 800ms)
+          await new Promise((resolve) => setTimeout(resolve, 800))
+        } else {
+          // Fall back to navigation callback
+          onNavigateToChair!(i)
+          // Wait for model to load
+          await new Promise((resolve) => setTimeout(resolve, 800))
+        }
 
-        // Wait 5 seconds for model to load and render
-        console.log(`[v0] Waiting 5 seconds for chair ${i} to load...`)
-        await new Promise((resolve) => setTimeout(resolve, 5000))
-
-        // Render a few frames to ensure everything is stable
-        for (let frame = 0; frame < 10; frame++) {
+        for (let frame = 0; frame < 3; frame++) {
           gl.render(scene, camera)
-          await new Promise((resolve) => setTimeout(resolve, 50))
+          await new Promise((resolve) => setTimeout(resolve, 30))
         }
 
         console.log(`[v0] Capturing PNG for chair ${i}`)
@@ -1276,11 +1285,11 @@ export function ModelViewer({
           }, "image/png")
         })
 
-        // Get the current model URL from displayedModelUrl state
-        if (displayedModelUrl) {
-          loadedModelUrls.push(displayedModelUrl)
-          // Clear models older than 5 chairs ago to free memory
-          if (loadedModelUrls.length > 5) {
+        // Track loaded models for cache management
+        const currentUrl = allModelUrls.length > 0 ? allModelUrls[i] : displayedModelUrl
+        if (currentUrl) {
+          loadedModelUrls.push(currentUrl)
+          if (loadedModelUrls.length > 3) {
             const urlToClear = loadedModelUrls.shift()
             if (urlToClear) {
               console.log(`[v0] Clearing model from cache: ${urlToClear}`)
@@ -1290,10 +1299,9 @@ export function ModelViewer({
         }
 
         // Update progress
-        setPngProgress(Math.round(((i + 1) / totalChairs) * 100))
+        setPngProgress(Math.round(((i + 1) / modelsToProcess.length) * 100))
 
-        // Small delay between downloads to prevent browser blocking
-        await new Promise((resolve) => setTimeout(resolve, 200))
+        await new Promise((resolve) => setTimeout(resolve, 50))
       }
 
       console.log("[v0] Clearing all remaining models from cache")
@@ -1302,7 +1310,7 @@ export function ModelViewer({
       })
 
       // Restore original state
-      onNavigateToChair(originalChairIndex)
+      setDisplayedModelUrl(originalModelUrl)
       scene.background = originalBackground
       gl.setSize(originalSize.width, originalSize.height, false)
 
