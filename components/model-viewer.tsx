@@ -839,20 +839,24 @@ export function ModelViewer({
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      // Shift + right-click for FOV control
-      if (e.button === 2 && e.shiftKey) {
+      if (e.button === 2 && spaceKeyDownRef.current) {
         e.preventDefault()
-        shiftRightMouseDownRef.current = true
-        shiftRightMouseStartRef.current = { x: e.clientX, y: e.clientY, fov: cameraFov }
-      } else if (e.button === 2 && spaceKeyDownRef.current) {
-        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
         spaceRightMouseDownRef.current = true
         spaceRightMouseStartRef.current = { x: e.clientX, y: e.clientY }
 
-        // Disable OrbitControls panning
+        // Disable OrbitControls entirely
         if (controlsRef.current) {
-          controlsRef.current.enablePan = false
+          controlsRef.current.enabled = false
         }
+        return // Exit early to prevent other handlers
+      }
+      // Shift + right-click for FOV control
+      else if (e.button === 2 && e.shiftKey) {
+        e.preventDefault()
+        shiftRightMouseDownRef.current = true
+        shiftRightMouseStartRef.current = { x: e.clientX, y: e.clientY, fov: cameraFov }
       }
       // Middle mouse button is button 1
       else if (e.button === 1) {
@@ -901,14 +905,10 @@ export function ModelViewer({
     }
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Handle shift + right-click drag for FOV
-      if (shiftRightMouseDownRef.current && shiftRightMouseStartRef.current) {
+      if (spaceRightMouseDownRef.current && spaceRightMouseStartRef.current) {
         e.preventDefault()
-        const deltaY = (e.clientY - shiftRightMouseStartRef.current.y) * 0.1
-        const newFov = Math.max(30, Math.min(90, shiftRightMouseStartRef.current.fov + deltaY))
-        setCameraFov(newFov)
-      } else if (spaceRightMouseDownRef.current && spaceRightMouseStartRef.current) {
-        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
 
         const deltaX = (e.clientX - spaceRightMouseStartRef.current.x) * 0.05
         const deltaY = (e.clientY - spaceRightMouseStartRef.current.y) * 0.05
@@ -921,6 +921,14 @@ export function ModelViewer({
         setHasManualLightControl(true)
 
         spaceRightMouseStartRef.current = { x: e.clientX, y: e.clientY }
+        return // Exit early to prevent other handlers
+      }
+      // Handle shift + right-click drag for FOV
+      else if (shiftRightMouseDownRef.current && shiftRightMouseStartRef.current) {
+        e.preventDefault()
+        const deltaY = (e.clientY - shiftRightMouseStartRef.current.y) * 0.1
+        const newFov = Math.max(30, Math.min(90, shiftRightMouseStartRef.current.fov + deltaY))
+        setCameraFov(newFov)
       }
       // Handle middle mouse drag for light control
       else if (middleMouseDownRef.current && middleMouseStartRef.current) {
@@ -943,18 +951,21 @@ export function ModelViewer({
 
     const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
-        shiftRightMouseDownRef.current = false
-        shiftRightMouseStartRef.current = null
-
         if (spaceRightMouseDownRef.current) {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
           spaceRightMouseDownRef.current = false
           spaceRightMouseStartRef.current = null
 
-          // Re-enable OrbitControls panning
+          // Re-enable OrbitControls
           if (controlsRef.current) {
-            controlsRef.current.enablePan = true
+            controlsRef.current.enabled = true
           }
         }
+
+        shiftRightMouseDownRef.current = false
+        shiftRightMouseStartRef.current = null
       }
       if (e.button === 1) {
         middleMouseDownRef.current = false
@@ -964,11 +975,13 @@ export function ModelViewer({
     }
 
     const handleContextMenu = (e: MouseEvent) => {
+      if (spaceRightMouseDownRef.current || (spaceKeyDownRef.current && e.button === 2)) {
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+      }
       // Prevent context menu when shift + right-click is used
       if (shiftRightMouseDownRef.current || e.shiftKey) {
-        e.preventDefault()
-      }
-      if (spaceRightMouseDownRef.current || (spaceKeyDownRef.current && e.button === 2)) {
         e.preventDefault()
       }
       // Prevent context menu when middle mouse is used
@@ -987,30 +1000,29 @@ export function ModelViewer({
       if (e.code === "Space") {
         spaceKeyDownRef.current = false
 
-        // If Space is released while dragging, stop the drag and re-enable panning
         if (spaceRightMouseDownRef.current) {
           spaceRightMouseDownRef.current = false
           spaceRightMouseStartRef.current = null
 
           if (controlsRef.current) {
-            controlsRef.current.enablePan = true
+            controlsRef.current.enabled = true
           }
         }
       }
     }
 
-    window.addEventListener("mousedown", handleMouseDown)
-    window.addEventListener("mousemove", handleMouseMove)
-    window.addEventListener("mouseup", handleMouseUp)
-    window.addEventListener("contextmenu", handleContextMenu)
+    window.addEventListener("mousedown", handleMouseDown, { capture: true })
+    window.addEventListener("mousemove", handleMouseMove, { capture: true })
+    window.addEventListener("mouseup", handleMouseUp, { capture: true })
+    window.addEventListener("contextmenu", handleContextMenu, { capture: true })
     window.addEventListener("keydown", handleKeyDown)
     window.addEventListener("keyup", handleKeyUp)
 
     return () => {
-      window.removeEventListener("mousedown", handleMouseDown)
-      window.removeEventListener("mousemove", handleMouseMove)
-      window.removeEventListener("mouseup", handleMouseUp)
-      window.removeEventListener("contextmenu", handleContextMenu)
+      window.removeEventListener("mousedown", handleMouseDown, { capture: true })
+      window.removeEventListener("mousemove", handleMouseMove, { capture: true })
+      window.removeEventListener("mouseup", handleMouseUp, { capture: true })
+      window.removeEventListener("contextmenu", handleContextMenu, { capture: true })
       window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
       if (middleMouseClickTimerRef.current) {
