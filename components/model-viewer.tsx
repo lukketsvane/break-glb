@@ -682,6 +682,7 @@ export function ModelViewer({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const controlsRef = useRef<any>(null)
   const glRef = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
   const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 5, 2.75))
   const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
 
@@ -1184,12 +1185,13 @@ export function ModelViewer({
     console.log("[v0] GIF generation started")
     console.log("[v0] glRef.current:", !!glRef.current)
     console.log("[v0] cameraRef.current:", !!cameraRef.current)
-    console.log("[v0] controlsRef.current:", !!controlsRef.current)
+    console.log("[v0] sceneRef.current:", !!sceneRef.current)
 
-    if (!glRef.current || !cameraRef.current) {
+    if (!glRef.current || !cameraRef.current || !sceneRef.current) {
       console.error("[v0] Cannot generate GIF: missing required refs", {
         gl: !!glRef.current,
         camera: !!cameraRef.current,
+        scene: !!sceneRef.current,
       })
       return
     }
@@ -1201,7 +1203,7 @@ export function ModelViewer({
       const gl = glRef.current
       const camera = cameraRef.current
       const controls = controlsRef.current as any // May be null
-      const scene = gl.scene
+      const scene = sceneRef.current
 
       // Store original state
       const originalAutoRotate = autoRotate
@@ -1361,10 +1363,11 @@ export function ModelViewer({
           preserveDrawingBuffer: true, // Required for screenshots
         }}
         shadows={useEnhancedRendering ? "soft" : true}
-        onCreated={({ camera, controls, gl }) => {
+        onCreated={({ camera, controls, gl, scene }) => {
           cameraRef.current = camera as THREE.PerspectiveCamera
           controlsRef.current = controls
-          glRef.current = gl // Store renderer reference for screenshots
+          glRef.current = gl
+          sceneRef.current = scene
         }}
       >
         <CameraController
