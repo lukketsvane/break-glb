@@ -1236,33 +1236,7 @@ export function ModelViewer({
         camera.updateProjectionMatrix()
       }
 
-      const hasCanvasContent = (): boolean => {
-        const canvas = gl.domElement
-        const ctx = canvas.getContext("2d")
-        if (!ctx) return false
-
-        // Sample pixels from center and corners
-        const samplePoints = [
-          { x: size / 2, y: size / 2 }, // Center
-          { x: size / 4, y: size / 4 }, // Top-left quadrant
-          { x: (3 * size) / 4, y: size / 4 }, // Top-right quadrant
-          { x: size / 4, y: (3 * size) / 4 }, // Bottom-left quadrant
-          { x: (3 * size) / 4, y: (3 * size) / 4 }, // Bottom-right quadrant
-        ]
-
-        let hasNonTransparentPixels = false
-        for (const point of samplePoints) {
-          const pixel = ctx.getImageData(point.x, point.y, 1, 1).data
-          // Check if pixel is not fully transparent (alpha > 0)
-          if (pixel[3] > 0) {
-            hasNonTransparentPixels = true
-            break
-          }
-        }
-
-        return hasNonTransparentPixels
-      }
-      // </CHANGE>
+      const loadedModelUrls: string[] = []
 
       // Generate PNG for each chair
       for (let i = 0; i < totalChairs; i++) {
@@ -1271,39 +1245,17 @@ export function ModelViewer({
         // Navigate to chair
         onNavigateToChair(i)
 
-        await new Promise((resolve) => setTimeout(resolve, 600))
+        // Wait 5 seconds for model to load and render
+        console.log(`[v0] Waiting 5 seconds for chair ${i} to load...`)
+        await new Promise((resolve) => setTimeout(resolve, 5000))
 
-        // Wait for model to actually load and render with content
-        let attempts = 0
-        const maxAttempts = 50 // Increased from 20 to 50
-        let modelLoaded = false
-
-        while (attempts < maxAttempts) {
-          // Render a frame
-          gl.render(scene, camera)
-          await new Promise((resolve) => setTimeout(resolve, 100))
-
-          // Check if canvas has actual content
-          if (hasCanvasContent()) {
-            console.log(`[v0] Model loaded and rendered for chair ${i} after ${attempts} attempts`)
-            modelLoaded = true
-            break
-          }
-
-          attempts++
-        }
-
-        if (!modelLoaded) {
-          console.error(`[v0] Model failed to load for chair ${i} after ${maxAttempts} attempts, skipping`)
-          continue // Skip this chair instead of capturing empty image
-        }
-
-        // Render a few more frames to ensure everything is stable
-        for (let frame = 0; frame < 5; frame++) {
+        // Render a few frames to ensure everything is stable
+        for (let frame = 0; frame < 10; frame++) {
           gl.render(scene, camera)
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
-        // </CHANGE>
+
+        console.log(`[v0] Capturing PNG for chair ${i}`)
 
         // Capture and download PNG
         const canvas = gl.domElement
@@ -1324,12 +1276,30 @@ export function ModelViewer({
           }, "image/png")
         })
 
+        // Get the current model URL from displayedModelUrl state
+        if (displayedModelUrl) {
+          loadedModelUrls.push(displayedModelUrl)
+          // Clear models older than 5 chairs ago to free memory
+          if (loadedModelUrls.length > 5) {
+            const urlToClear = loadedModelUrls.shift()
+            if (urlToClear) {
+              console.log(`[v0] Clearing model from cache: ${urlToClear}`)
+              useGLTF.clear(urlToClear)
+            }
+          }
+        }
+
         // Update progress
         setPngProgress(Math.round(((i + 1) / totalChairs) * 100))
 
         // Small delay between downloads to prevent browser blocking
         await new Promise((resolve) => setTimeout(resolve, 200))
       }
+
+      console.log("[v0] Clearing all remaining models from cache")
+      loadedModelUrls.forEach((url) => {
+        useGLTF.clear(url)
+      })
 
       // Restore original state
       onNavigateToChair(originalChairIndex)
