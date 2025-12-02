@@ -2,8 +2,7 @@
 
 import { Suspense, useRef, useState, useEffect } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { OrbitControls, useGLTF } from "@react-three/drei"
-import { EffectComposer, DepthOfField, Bloom, SSAO } from "@react-three/postprocessing"
+import { OrbitControls, useGLTF, Environment } from "@react-three/drei"
 import * as THREE from "three"
 
 interface ModelViewerProps {
@@ -11,17 +10,12 @@ interface ModelViewerProps {
   isExploded: boolean
   chairIndex: number
   theme: "light" | "dark"
-  performanceMode?: boolean
-  onToggleExplode?: () => void // Added callback for explode toggle
-  totalChairs?: number
-  onNavigateToChair?: (index: number) => void
 }
 
 interface ModelProps {
   url: string
   isExploded: boolean
   lightPosition: THREE.Vector3
-  opacity?: number
 }
 
 interface Part {
@@ -42,13 +36,9 @@ interface Part {
   isDragging: boolean
   collisionMesh: THREE.Mesh | null
   grabOffset: THREE.Vector3
-  mass: number
-  momentOfInertia: number
-  lastDragPosition: THREE.Vector3
-  dragVelocityHistory: THREE.Vector3[]
 }
 
-function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
+function Model({ url, isExploded, lightPosition }: ModelProps) {
   const { scene } = useGLTF(url)
   const [isLoaded, setIsLoaded] = useState(false)
   const groupRef = useRef<THREE.Group>(null)
@@ -69,14 +59,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
   const isExplodedRef = useRef(isExploded)
 
   useEffect(() => {
-    partsRef.current = parts
-  }, [parts])
-
-  useEffect(() => {
-    isExplodedRef.current = isExploded
-  }, [isExploded])
-
-  useEffect(() => {
     if (!scene) return
 
     setIsLoaded(true)
@@ -91,7 +73,7 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
     const box = new THREE.Box3().setFromObject(scene)
     const minY = box.min.y
     const size = box.getSize(new THREE.Vector3())
-    scene.position.y = -minY
+    scene.position.y = -minY // Lift the model so its bottom is at y=0
 
     const explodableParts: Part[] = []
 
@@ -132,10 +114,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
             collisionMesh = directMeshes[0] as THREE.Mesh
           }
 
-          const volume = size.x * size.y * size.z
-          const mass = Math.max(0.5, volume * 10)
-          const momentOfInertia = mass * (collisionRadius * collisionRadius)
-
           explodableParts.push({
             object: obj,
             originalPosition: obj.position.clone(),
@@ -154,10 +132,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
             isDragging: false,
             collisionMesh,
             grabOffset: new THREE.Vector3(),
-            mass,
-            momentOfInertia,
-            lastDragPosition: new THREE.Vector3(),
-            dragVelocityHistory: [],
           })
 
           return
@@ -192,10 +166,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
         const distance = 0.5 + Math.random() * 0.2 + collisionRadius * 0.5
         const explodedPosition = obj.position.clone().add(direction.multiplyScalar(distance))
 
-        const volume = size.x * size.y * size.z
-        const mass = Math.max(0.5, volume * 10)
-        const momentOfInertia = mass * (collisionRadius * collisionRadius)
-
         explodableParts.push({
           object: obj,
           originalPosition: obj.position.clone(),
@@ -214,10 +184,6 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
           isDragging: false,
           collisionMesh: obj instanceof THREE.Mesh ? obj : null,
           grabOffset: new THREE.Vector3(),
-          mass,
-          momentOfInertia,
-          lastDragPosition: new THREE.Vector3(),
-          dragVelocityHistory: [],
         })
       }
 
@@ -227,6 +193,7 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
     findParts(scene)
     setParts(explodableParts)
 
+    // Reset animation state for new model
     hasExplodedRef.current = false
     isAnimatingRef.current = false
   }, [scene])
@@ -328,47 +295,27 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
         const part = draggedPartRef.current
 
         const targetPosition = intersectionPoint.clone().sub(part.grabOffset)
-        const currentVelocity = targetPosition.clone().sub(part.object.position)
-        part.dragVelocityHistory.push(currentVelocity.clone())
+        const delta = targetPosition.clone().sub(part.object.position)
 
-        if (part.dragVelocityHistory.length > 5) {
-          part.dragVelocityHistory.shift()
-        }
+        part.velocity.copy(delta).multiplyScalar(20)
 
         part.object.position.copy(targetPosition)
         part.currentPosition.copy(targetPosition)
 
         const movementDelta = intersectionPoint.clone().sub(previousDragPositionRef.current)
-
         if (movementDelta.length() > 0.001) {
-          const leverArm = part.grabOffset.clone()
-          const force = movementDelta.clone().multiplyScalar(part.mass * 50)
-          const torque = new THREE.Vector3().crossVectors(leverArm, force)
-          const angularAcceleration = torque.divideScalar(part.momentOfInertia)
-
-          part.angularVelocity.x += angularAcceleration.x * 0.1
-          part.angularVelocity.y += angularAcceleration.y * 0.1
-          part.angularVelocity.z += angularAcceleration.z * 0.1
+          part.angularVelocity.x += movementDelta.y * 2
+          part.angularVelocity.y += movementDelta.x * 2
+          part.angularVelocity.z += (movementDelta.x + movementDelta.y) * 0.5
         }
 
-        part.lastDragPosition.copy(intersectionPoint)
         previousDragPositionRef.current.copy(intersectionPoint)
       }
     }
 
     const handlePointerUp = () => {
       if (draggedPartRef.current) {
-        const part = draggedPartRef.current
-
-        if (part.dragVelocityHistory.length > 0) {
-          const avgVelocity = new THREE.Vector3()
-          part.dragVelocityHistory.forEach((v) => avgVelocity.add(v))
-          avgVelocity.divideScalar(part.dragVelocityHistory.length)
-          part.velocity.copy(avgVelocity.multiplyScalar(25 / part.mass))
-        }
-
-        part.dragVelocityHistory = []
-        part.isDragging = false
+        draggedPartRef.current.isDragging = false
         draggedPartRef.current = null
       }
 
@@ -440,40 +387,19 @@ function Model({ url, isExploded, lightPosition, opacity = 1 }: ModelProps) {
       if (!isDragging && velocity.length() > 0.01) {
         object.position.add(velocity.clone().multiplyScalar(delta))
         currentPosition.copy(object.position)
-
-        const airResistance = 0.98 - velocity.length() * 0.01
-        velocity.multiplyScalar(Math.max(0.85, airResistance))
+        velocity.multiplyScalar(0.92)
 
         object.rotation.x += angularVelocity.x * delta
         object.rotation.y += angularVelocity.y * delta
         object.rotation.z += angularVelocity.z * delta
 
-        const angularDrag = 0.96
-        angularVelocity.x *= angularDrag
-        angularVelocity.y *= angularDrag
-        angularVelocity.z *= angularDrag
+        angularVelocity.x *= 0.92
+        angularVelocity.y *= 0.92
+        angularVelocity.z *= 0.92
 
         const targetPosition = isExploded ? explodedPosition : originalPosition
         const returnForce = targetPosition.clone().sub(currentPosition).multiplyScalar(0.05)
         velocity.add(returnForce)
-
-        if (isExploded) {
-          partsRef.current.forEach((otherPart) => {
-            if (otherPart === part || otherPart.isDragging) return
-
-            const distance = currentPosition.distanceTo(otherPart.currentPosition)
-            const minDistance = part.collisionRadius + otherPart.collisionRadius
-
-            if (distance < minDistance && distance > 0) {
-              const pushDirection = currentPosition.clone().sub(otherPart.currentPosition).normalize()
-              const overlap = minDistance - distance
-              const pushForce = pushDirection.multiplyScalar(overlap * 0.5)
-
-              velocity.add(pushForce)
-            }
-          })
-        }
-
         return
       }
 
@@ -524,120 +450,36 @@ function LoadingFallback() {
   return null
 }
 
-type LightingPreset = "gallery" | "golden-hour" | "nordic" | "spotlight"
-
-type MaterialPreset = "default" | "matte" | "glossy" | "metallic" | "wood" | "fabric"
-
-const MATERIAL_PRESETS = {
-  default: {
-    name: "Default",
-    roughness: null, // Keep original
-    metalness: null, // Keep original
-    clearcoat: 0,
-    clearcoatRoughness: 0,
-  },
-  matte: {
-    name: "Matte",
-    roughness: 0.9,
-    metalness: 0.0,
-    clearcoat: 0,
-    clearcoatRoughness: 0,
-  },
-  glossy: {
-    name: "Glossy",
-    roughness: 0.1,
-    metalness: 0.0,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.1,
-  },
-  metallic: {
-    name: "Metallic",
-    roughness: 0.3,
-    metalness: 1.0,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.2,
-  },
-  wood: {
-    name: "Wood",
-    roughness: 0.7,
-    metalness: 0.0,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.4,
-  },
-  fabric: {
-    name: "Fabric",
-    roughness: 1.0,
-    metalness: 0.0,
-    clearcoat: 0,
-    clearcoatRoughness: 0,
-  },
-}
-
-const BACKGROUNDS = [
-  {
-    name: "Default",
-    gradient: null, // Will use theme-based color
-    sceneColor: null, // Will use theme-based color
-  },
-  {
-    name: "Warm Studio",
-    gradient: "linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)",
-    sceneColor: "#fdd4b8",
-  },
-  {
-    name: "Cool Twilight",
-    gradient: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)",
-    sceneColor: "#cbe2e9",
-  },
-  {
-    name: "Professional Gray",
-    gradient: "linear-gradient(135deg, #e0e0e0 0%, #c9c9c9 100%)",
-    sceneColor: "#d4d4d4",
-  },
-  {
-    name: "Soft Beige",
-    gradient: "linear-gradient(135deg, #f5f5dc 0%, #e8dcc4 100%)",
-    sceneColor: "#eee9d0",
-  },
-  {
-    name: "Sage Green",
-    gradient: "linear-gradient(135deg, #d4e7d7 0%, #b8d4bb 100%)",
-    sceneColor: "#c6ddc9",
-  },
-]
+type LightingPreset = "studio" | "dramatic" | "soft" | "colorful"
 
 const LIGHTING_PRESETS = {
-  gallery: {
-    name: "Gallery",
-    ambientIntensity: 0.2,
-    mainLight: { basePosition: [12, 15, 8], intensity: 2.8, color: "#ffffff" },
-    fillLight: { basePosition: [-8, 8, -6], intensity: 0.6, color: "#f0f0ff" },
-    spotLight: { basePosition: [0, 18, 0], intensity: 2.5, color: "#ffffff", angle: 0.4 },
-    rimLight: { basePosition: [-15, 5, -10], intensity: 1.8, color: "#e8f4ff" },
+  studio: {
+    environment: "studio" as const,
+    ambientIntensity: 0.3,
+    mainLight: { basePosition: [10, 10, 5], intensity: 1.2, color: "#ffffff" },
+    fillLight: { basePosition: [-10, -10, -5], intensity: 0.4, color: "#ffffff" },
+    spotLight: { basePosition: [0, 10, 0], intensity: 0.5, color: "#ffffff" },
   },
-  "golden-hour": {
-    name: "Golden Hour",
-    ambientIntensity: 0.15,
-    mainLight: { basePosition: [20, 8, 15], intensity: 3.5, color: "#ffb366" },
-    fillLight: { basePosition: [-10, 3, -8], intensity: 0.4, color: "#6b8cff" },
-    spotLight: { basePosition: [15, 12, 10], intensity: 1.8, color: "#ffd699", angle: 0.5 },
-    rimLight: { basePosition: [-18, 6, -12], intensity: 2.2, color: "#ff9944" },
+  dramatic: {
+    environment: "night" as const,
+    ambientIntensity: 0.1,
+    mainLight: { basePosition: [15, 5, 0], intensity: 2.5, color: "#ff8844" },
+    fillLight: { basePosition: [-5, -5, -10], intensity: 0.2, color: "#4488ff" },
+    spotLight: { basePosition: [0, 15, 5], intensity: 1.2, color: "#ffffff" },
   },
-  nordic: {
-    name: "Nordic",
-    ambientIntensity: 0.35,
-    mainLight: { basePosition: [8, 20, 12], intensity: 2.2, color: "#e8f4ff" },
-    fillLight: { basePosition: [-12, 10, -10], intensity: 0.8, color: "#ffffff" },
-    spotLight: { basePosition: [0, 25, 0], intensity: 1.2, color: "#f0f8ff", angle: 0.6 },
-    rimLight: { basePosition: [-10, 8, -15], intensity: 1.0, color: "#d4e8ff" },
+  soft: {
+    environment: "sunset" as const,
+    ambientIntensity: 0.6,
+    mainLight: { basePosition: [5, 8, 8], intensity: 0.8, color: "#fff5e6" },
+    fillLight: { basePosition: [-8, 5, -5], intensity: 0.6, color: "#e6f0ff" },
+    spotLight: { basePosition: [0, 12, 0], intensity: 0.3, color: "#fff5e6" },
   },
-  spotlight: {
-    name: "Spotlight",
-    ambientIntensity: 0.05,
-    mainLight: { basePosition: [2, 25, 3], intensity: 4.5, color: "#ffffff" },
-    fillLight: { basePosition: [-15, 2, -12], intensity: 0.15, color: "#4466ff" },
-    spotLight: { basePosition: [0, 30, 0], intensity: 5.0, color: "#ffffee", angle: 0.3 },
-    rimLight: { basePosition: [-20, 8, -18], intensity: 2.5, color: "#ff6644" },
+  colorful: {
+    environment: "city" as const,
+    ambientIntensity: 0.4,
+    mainLight: { basePosition: [8, 10, 8], intensity: 1.5, color: "#ff44ff" },
+    fillLight: { basePosition: [-8, -8, -8], intensity: 1.0, color: "#44ffff" },
+    spotLight: { basePosition: [0, 10, 0], intensity: 0.8, color: "#ffff44" },
   },
 }
 
@@ -652,95 +494,53 @@ export function ModelViewer({
   isExploded,
   chairIndex,
   theme,
-  performanceMode = false,
-  onToggleExplode, // Added onToggleExplode prop
-  totalChairs = 0,
-  onNavigateToChair,
 }: ModelViewerProps & { theme: "light" | "dark" }) {
-  const [lightingPreset, setLightingPreset] = useState<LightingPreset>("gallery")
-  const [hasManualLightControl, setHasManualLightControl] = useState(false)
-  const [showGround, setShowGround] = useState(true)
-  const [backgroundIndex, setBackgroundIndex] = useState(0)
-  const [wireframeMode, setWireframeMode] = useState(false)
-  const [cameraFov, setCameraFov] = useState(50)
-  const [bloomEnabled, setBloomEnabled] = useState(true)
-  const [autoRotate, setAutoRotate] = useState(false)
-  const [materialPreset, setMaterialPreset] = useState<MaterialPreset>("default")
-  const [isOrthographic, setIsOrthographic] = useState(false)
+  const [lightingPreset, setLightingPreset] = useState<LightingPreset>("studio")
+  const [lightPosition, setLightPosition] = useState(new THREE.Vector3(10, 10, 5))
 
-  const [autoRotateSpeed, setAutoRotateSpeed] = useState(1.0)
-
-  const [isGeneratingPngs, setIsGeneratingPngs] = useState(false)
-  const [pngProgress, setPngProgress] = useState(0)
-
-  const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([12, 15, 8])
-  const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-8, 8, -6])
-  const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 18, 0])
-  const [rimLightPos, setRimLightPos] = useState<[number, number, number]>([-15, 5, -10])
+  const [mainLightPos, setMainLightPos] = useState<[number, number, number]>([10, 10, 5])
+  const [fillLightPos, setFillLightPos] = useState<[number, number, number]>([-10, -10, -5])
+  const [spotLightPos, setSpotLightPos] = useState<[number, number, number]>([0, 10, 0])
 
   const lightRef = useRef<THREE.DirectionalLight>(null)
   const fillLightRef = useRef<THREE.DirectionalLight>(null)
   const spotLightRef = useRef<THREE.SpotLight>(null)
-  const rimLightRef = useRef<THREE.DirectionalLight>(null)
-
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
-  const controlsRef = useRef<any>(null)
-  const glRef = useRef<THREE.WebGLRenderer | null>(null)
-  const sceneRef = useRef<THREE.Scene | null>(null)
-  const defaultCameraPosition = useRef(new THREE.Vector3(2.75, 5, 2.75))
-  const defaultCameraTarget = useRef(new THREE.Vector3(0, 0, 0))
-
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const isThreeFingerRef = useRef(false)
-  const isThreeFingerDraggingRef = useRef(false)
 
   const threeFingerTapCountRef = useRef(0)
   const threeFingerTapTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastThreeFingerTapTimeRef = useRef(0)
 
-  const middleMouseDownRef = useRef(false)
-  const middleMouseDraggingRef = useRef(false)
-  const middleMouseStartRef = useRef<{ x: number; y: number } | null>(null)
-  const middleMouseClickCountRef = useRef(0)
-  const middleMouseClickTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const lastMiddleMouseClickTimeRef = useRef(0)
-
-  const shiftRightMouseDownRef = useRef(false)
-  const shiftRightMouseStartRef = useRef<{ x: number; y: number; fov: number } | null>(null)
-
-  const spaceKeyDownRef = useRef(false)
-  const spaceRightMouseDownRef = useRef(false)
-  const spaceRightMouseStartRef = useRef<{ x: number; y: number } | null>(null)
-
   const [displayedModelUrl, setDisplayedModelUrl] = useState(modelUrl)
-  const [previousModelUrl, setPreviousModelUrl] = useState<string | null>(null)
-  const [transitionProgress, setTransitionProgress] = useState(1)
 
   useEffect(() => {
     if (modelUrl !== displayedModelUrl) {
-      setPreviousModelUrl(displayedModelUrl)
-      setTransitionProgress(0)
-
+      // Preload the new model
       useGLTF.preload(modelUrl)
 
-      const startTime = Date.now()
-      const duration = 400
-
-      const animate = () => {
-        const elapsed = Date.now() - startTime
-        const progress = Math.min(elapsed / duration, 1)
-
-        setTransitionProgress(progress)
-
-        if (progress < 1) {
-          requestAnimationFrame(animate)
-        } else {
-          setDisplayedModelUrl(modelUrl)
-          setPreviousModelUrl(null)
+      // Wait for model to be fully loaded before switching
+      const checkInterval = setInterval(() => {
+        try {
+          const cached = (useGLTF as any).cache.get(modelUrl)
+          if (cached) {
+            clearInterval(checkInterval)
+            setDisplayedModelUrl(modelUrl)
+          }
+        } catch (e) {
+          // Model not ready yet, keep waiting
         }
-      }
+      }, 50)
 
-      requestAnimationFrame(animate)
+      const fallbackTimeout = setTimeout(() => {
+        clearInterval(checkInterval)
+        setDisplayedModelUrl(modelUrl)
+      }, 2000)
+
+      return () => {
+        clearInterval(checkInterval)
+        clearTimeout(fallbackTimeout)
+      }
     }
   }, [modelUrl, displayedModelUrl])
 
@@ -754,7 +554,7 @@ export function ModelViewer({
           threeFingerTapCountRef.current++
 
           if (threeFingerTapCountRef.current === 2) {
-            const presets: LightingPreset[] = ["gallery", "golden-hour", "nordic", "spotlight"]
+            const presets: LightingPreset[] = ["studio", "dramatic", "soft", "colorful"]
             const currentIndex = presets.indexOf(lightingPreset)
             const nextIndex = (currentIndex + 1) % presets.length
             const nextPreset = presets[nextIndex]
@@ -764,7 +564,6 @@ export function ModelViewer({
             setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
             setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
             setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
-            setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
 
             threeFingerTapCountRef.current = 0
           }
@@ -796,10 +595,16 @@ export function ModelViewer({
   }, [lightingPreset])
 
   useEffect(() => {
+    const preset = LIGHTING_PRESETS[lightingPreset]
+    setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
+    setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
+    setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
+  }, [lightingPreset])
+
+  useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 3) {
         isThreeFingerRef.current = true
-        isThreeFingerDraggingRef.current = false
         const touch = e.touches[0]
         touchStartRef.current = { x: touch.clientX, y: touch.clientY }
         e.preventDefault()
@@ -808,18 +613,16 @@ export function ModelViewer({
 
     const handleTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 3 && isThreeFingerRef.current && touchStartRef.current) {
-        isThreeFingerDraggingRef.current = true
-
         const touch = e.touches[0]
         const deltaX = (touch.clientX - touchStartRef.current.x) * 0.05
         const deltaY = (touch.clientY - touchStartRef.current.y) * 0.05
 
-        setMainLightPos((prev) => {
-          const newPos: [number, number, number] = [prev[0] + deltaX, prev[1] - deltaY, prev[2]]
+        setLightPosition((prev) => {
+          const newPos = prev.clone()
+          newPos.x += deltaX
+          newPos.y -= deltaY
           return newPos
         })
-
-        setHasManualLightControl(true)
 
         touchStartRef.current = { x: touch.clientX, y: touch.clientY }
         e.preventDefault()
@@ -829,7 +632,6 @@ export function ModelViewer({
     const handleTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 3) {
         isThreeFingerRef.current = false
-        isThreeFingerDraggingRef.current = false
         touchStartRef.current = null
       }
     }
@@ -845,705 +647,68 @@ export function ModelViewer({
     }
   }, [])
 
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 2 && spaceKeyDownRef.current) {
-        e.preventDefault()
-        e.stopPropagation()
-        e.stopImmediatePropagation()
-        spaceRightMouseDownRef.current = true
-        spaceRightMouseStartRef.current = { x: e.clientX, y: e.clientY }
-
-        // Disable OrbitControls entirely
-        if (controlsRef.current) {
-          controlsRef.current.enabled = false
-        }
-        return // Exit early to prevent other handlers
-      }
-      // Shift + right-click for FOV control
-      else if (e.button === 2 && e.shiftKey) {
-        e.preventDefault()
-        shiftRightMouseDownRef.current = true
-        shiftRightMouseStartRef.current = { x: e.clientX, y: e.clientY, fov: cameraFov }
-      }
-      // Middle mouse button is button 1
-      else if (e.button === 1) {
-        e.preventDefault()
-        middleMouseDownRef.current = true
-        middleMouseDraggingRef.current = false
-        middleMouseStartRef.current = { x: e.clientX, y: e.clientY }
-
-        // Handle double-click for preset change
-        const now = Date.now()
-        const timeSinceLastClick = now - lastMiddleMouseClickTimeRef.current
-
-        if (timeSinceLastClick < 300) {
-          middleMouseClickCountRef.current++
-
-          if (middleMouseClickCountRef.current === 2) {
-            // Change lighting preset
-            const presets: LightingPreset[] = ["gallery", "golden-hour", "nordic", "spotlight"]
-            const currentIndex = presets.indexOf(lightingPreset)
-            const nextIndex = (currentIndex + 1) % presets.length
-            const nextPreset = presets[nextIndex]
-            setLightingPreset(nextPreset)
-
-            const preset = LIGHTING_PRESETS[nextPreset]
-            setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
-            setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
-            setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
-            setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
-
-            middleMouseClickCountRef.current = 0
-          }
-
-          if (middleMouseClickTimerRef.current) {
-            clearTimeout(middleMouseClickTimerRef.current)
-          }
-
-          middleMouseClickTimerRef.current = setTimeout(() => {
-            middleMouseClickCountRef.current = 0
-          }, 300)
-        } else {
-          middleMouseClickCountRef.current = 1
-        }
-
-        lastMiddleMouseClickTimeRef.current = now
-      }
-    }
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (spaceRightMouseDownRef.current && spaceRightMouseStartRef.current) {
-        e.preventDefault()
-        e.stopPropagation()
-        e.stopImmediatePropagation()
-
-        const deltaX = (e.clientX - spaceRightMouseStartRef.current.x) * 0.05
-        const deltaY = (e.clientY - spaceRightMouseStartRef.current.y) * 0.05
-
-        setMainLightPos((prev) => {
-          const newPos: [number, number, number] = [prev[0] + deltaX, prev[1] - deltaY, prev[2]]
-          return newPos
-        })
-
-        setHasManualLightControl(true)
-
-        spaceRightMouseStartRef.current = { x: e.clientX, y: e.clientY }
-        return // Exit early to prevent other handlers
-      }
-      // Handle shift + right-click drag for FOV
-      else if (shiftRightMouseDownRef.current && shiftRightMouseStartRef.current) {
-        e.preventDefault()
-        const deltaY = (e.clientY - shiftRightMouseStartRef.current.y) * 0.1
-        const newFov = Math.max(30, Math.min(90, shiftRightMouseStartRef.current.fov + deltaY))
-        setCameraFov(newFov)
-      }
-      // Handle middle mouse drag for light control
-      else if (middleMouseDownRef.current && middleMouseStartRef.current) {
-        e.preventDefault()
-        middleMouseDraggingRef.current = true
-
-        const deltaX = (e.clientX - middleMouseStartRef.current.x) * 0.05
-        const deltaY = (e.clientY - middleMouseStartRef.current.y) * 0.05
-
-        setMainLightPos((prev) => {
-          const newPos: [number, number, number] = [prev[0] + deltaX, prev[1] - deltaY, prev[2]]
-          return newPos
-        })
-
-        setHasManualLightControl(true)
-
-        middleMouseStartRef.current = { x: e.clientX, y: e.clientY }
-      }
-    }
-
-    const handleMouseUp = (e: MouseEvent) => {
-      if (e.button === 2) {
-        if (spaceRightMouseDownRef.current) {
-          e.preventDefault()
-          e.stopPropagation()
-          e.stopImmediatePropagation()
-          spaceRightMouseDownRef.current = false
-          spaceRightMouseStartRef.current = null
-
-          // Re-enable OrbitControls
-          if (controlsRef.current) {
-            controlsRef.current.enabled = true
-          }
-        }
-
-        shiftRightMouseDownRef.current = false
-        shiftRightMouseStartRef.current = null
-      }
-      if (e.button === 1) {
-        middleMouseDownRef.current = false
-        middleMouseDraggingRef.current = false
-        middleMouseStartRef.current = null
-      }
-    }
-
-    const handleContextMenu = (e: MouseEvent) => {
-      if (spaceRightMouseDownRef.current || (spaceKeyDownRef.current && e.button === 2)) {
-        e.preventDefault()
-        e.stopPropagation()
-        e.stopImmediatePropagation()
-      }
-      // Prevent context menu when shift + right-click is used
-      if (shiftRightMouseDownRef.current || e.shiftKey) {
-        e.preventDefault()
-      }
-      // Prevent context menu when middle mouse is used
-      if (middleMouseDownRef.current || middleMouseDraggingRef.current) {
-        e.preventDefault()
-      }
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !e.repeat) {
-        spaceKeyDownRef.current = true
-      }
-    }
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        spaceKeyDownRef.current = false
-
-        if (spaceRightMouseDownRef.current) {
-          spaceRightMouseDownRef.current = false
-          spaceRightMouseStartRef.current = null
-
-          if (controlsRef.current) {
-            controlsRef.current.enabled = true
-          }
-        }
-      }
-    }
-
-    window.addEventListener("mousedown", handleMouseDown, { capture: true })
-    window.addEventListener("mousemove", handleMouseMove, { capture: true })
-    window.addEventListener("mouseup", handleMouseUp, { capture: true })
-    window.addEventListener("contextmenu", handleContextMenu, { capture: true })
-    window.addEventListener("keydown", handleKeyDown)
-    window.addEventListener("keyup", handleKeyUp)
-
-    return () => {
-      window.removeEventListener("mousedown", handleMouseDown, { capture: true })
-      window.removeEventListener("mousemove", handleMouseMove, { capture: true })
-      window.removeEventListener("mouseup", handleMouseUp, { capture: true })
-      window.removeEventListener("contextmenu", handleContextMenu, { capture: true })
-      window.removeEventListener("keydown", handleKeyDown)
-      window.removeEventListener("keyup", handleKeyUp)
-      if (middleMouseClickTimerRef.current) {
-        clearTimeout(middleMouseClickTimerRef.current)
-      }
-    }
-  }, [lightingPreset, cameraFov])
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key >= "1" && e.key <= "9") {
-        e.preventDefault()
-        const speed = Number.parseInt(e.key) * 0.2 // 1=0.2, 5=1.0, 9=1.8
-        setAutoRotateSpeed(speed)
-        // Enable auto-rotate if not already enabled
-        if (!autoRotate) {
-          setAutoRotate(true)
-        }
-      }
-      // G key - Toggle ground visibility
-      else if (e.key === "g" || e.key === "G") {
-        e.preventDefault()
-        setShowGround((prev) => !prev)
-      }
-      // E key - Cycle through lighting presets
-      else if (e.key === "e" || e.key === "E") {
-        e.preventDefault()
-        const presets: LightingPreset[] = ["gallery", "golden-hour", "nordic", "spotlight"]
-        const currentIndex = presets.indexOf(lightingPreset)
-        const nextIndex = (currentIndex + 1) % presets.length
-        const nextPreset = presets[nextIndex]
-        setLightingPreset(nextPreset)
-
-        const preset = LIGHTING_PRESETS[nextPreset]
-        setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
-        setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
-        setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
-        setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
-      }
-      // B key - Cycle through backgrounds
-      else if (e.key === "b" || e.key === "B") {
-        e.preventDefault()
-        setBackgroundIndex((prev) => (prev + 1) % BACKGROUNDS.length)
-      }
-      // N key - Randomize all light directions
-      else if (e.key === "n" || e.key === "N") {
-        e.preventDefault()
-        const preset = LIGHTING_PRESETS[lightingPreset]
-        setMainLightPos(randomizeLightPosition(preset.mainLight.basePosition))
-        setFillLightPos(randomizeLightPosition(preset.fillLight.basePosition))
-        setSpotLightPos(randomizeLightPosition(preset.spotLight.basePosition))
-        setRimLightPos(randomizeLightPosition(preset.rimLight.basePosition))
-        setHasManualLightControl(true)
-      }
-      // R key - Reset camera to default position
-      else if (e.key === "r" || e.key === "R") {
-        e.preventDefault()
-        if (cameraRef.current && controlsRef.current) {
-          cameraRef.current.position.copy(defaultCameraPosition.current)
-          controlsRef.current.target.copy(defaultCameraTarget.current)
-          controlsRef.current.update()
-          setCameraFov(50)
-        }
-      }
-      // F key - Focus/frame the model (auto-fit to view)
-      else if (e.key === "f" || e.key === "F") {
-        e.preventDefault()
-        if (cameraRef.current && controlsRef.current) {
-          const event = new CustomEvent("autoframe")
-          window.dispatchEvent(event)
-        }
-      }
-      // X key - Toggle wireframe mode
-      else if (e.key === "x" || e.key === "X") {
-        e.preventDefault()
-        setWireframeMode((prev) => !prev)
-      }
-      // L key - Toggle bloom
-      else if (e.key === "l" || e.key === "L") {
-        e.preventDefault()
-        setBloomEnabled((prev) => !prev)
-      }
-      // S key - Screenshot
-      else if (e.key === "s" || e.key === "S") {
-        e.preventDefault()
-        if (glRef.current && cameraRef.current && sceneRef.current) {
-          try {
-            const gl = glRef.current
-            const scene = sceneRef.current
-
-            // Store original background
-            const originalBackground = scene.background
-
-            // Set transparent background
-            scene.background = null
-
-            // Render one frame with transparent background
-            gl.render(scene, cameraRef.current)
-
-            // Capture the canvas
-            const canvas = gl.domElement
-            canvas.toBlob((blob) => {
-              if (blob) {
-                const url = URL.createObjectURL(blob)
-                const link = document.createElement("a")
-                link.href = url
-                link.download = `chair-${chairIndex}-${Date.now()}.png`
-                link.click()
-                URL.revokeObjectURL(url)
-              }
-
-              // Restore original background
-              scene.background = originalBackground
-              gl.render(scene, cameraRef.current!)
-            }, "image/png")
-          } catch (error) {
-            console.error("[v0] Screenshot failed:", error)
-          }
-        }
-      }
-      // T key - Toggle auto-rotate
-      else if (e.key === "t" || e.key === "T") {
-        e.preventDefault()
-        setAutoRotate((prev) => !prev)
-      }
-      // M key - Cycle material presets
-      else if (e.key === "m" || e.key === "M") {
-        e.preventDefault()
-        const presets: MaterialPreset[] = ["default", "matte", "glossy", "metallic", "wood", "fabric"]
-        const currentIndex = presets.indexOf(materialPreset)
-        const nextIndex = (currentIndex + 1) % presets.length
-        setMaterialPreset(presets[nextIndex])
-      }
-      // O key - Toggle orthographic camera
-      else if (e.key === "o" || e.key === "O") {
-        e.preventDefault()
-        setIsOrthographic((prev) => !prev)
-      } else if (e.key === "p" || e.key === "P") {
-        e.preventDefault()
-        if (onToggleExplode) {
-          onToggleExplode()
-        }
-      } else if (e.key === "j" || e.key === "J") {
-        e.preventDefault()
-        if (!isGeneratingPngs) {
-          generatePngSequence()
-        }
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [
-    lightingPreset,
-    chairIndex,
-    materialPreset,
-    onToggleExplode,
-    autoRotate,
-    autoRotateSpeed,
-    isGeneratingPngs, // Updated dependency
-    totalChairs,
-    onNavigateToChair,
-  ]) // Added onToggleExplode and autoRotateSpeed to dependencies
-
-  const generatePngSequence = async () => {
-    console.log("[v0] PNG sequence generation started")
-
-    if (!glRef.current || !cameraRef.current || !sceneRef.current) {
-      console.error("[v0] Cannot generate PNGs: missing required refs")
-      return
-    }
-
-    if (!onNavigateToChair || totalChairs === 0) {
-      console.error("[v0] Cannot generate PNGs: missing navigation callback or totalChairs")
-      return
-    }
-
-    setIsGeneratingPngs(true)
-    setPngProgress(0)
-
-    const hasCanvasContent = (): boolean => {
-      const canvas = glRef.current!.domElement
-      const ctx = canvas.getContext("2d", { willReadFrequently: true })
-      if (!ctx) return false
-
-      // Sample multiple points across the canvas
-      const samplePoints = [
-        { x: canvas.width / 2, y: canvas.height / 2 }, // Center
-        { x: canvas.width / 4, y: canvas.height / 4 }, // Top-left quadrant
-        { x: (3 * canvas.width) / 4, y: canvas.height / 4 }, // Top-right quadrant
-        { x: canvas.width / 4, y: (3 * canvas.height) / 4 }, // Bottom-left quadrant
-        { x: (3 * canvas.width) / 4, y: (3 * canvas.height) / 4 }, // Bottom-right quadrant
-      ]
-
-      for (const point of samplePoints) {
-        const pixel = ctx.getImageData(point.x, point.y, 1, 1).data
-        // Check if pixel is not fully transparent and not pure white/black background
-        if (
-          pixel[3] > 10 &&
-          !(pixel[0] > 250 && pixel[1] > 250 && pixel[2] > 250) &&
-          !(pixel[0] < 5 && pixel[1] < 5 && pixel[2] < 5)
-        ) {
-          return true
-        }
-      }
-
-      return false
-    }
-
-    try {
-      const gl = glRef.current
-      const camera = cameraRef.current
-      const scene = sceneRef.current
-
-      // Store original state
-      const originalChairIndex = chairIndex
-      const originalBackground = scene.background
-      const originalSize = { width: gl.domElement.width, height: gl.domElement.height }
-
-      // Set transparent background
-      scene.background = null
-
-      // High-res square dimensions (1:1 aspect ratio)
-      const size = 2048
-
-      // Set renderer size to square
-      gl.setSize(size, size, false)
-
-      // Update camera aspect ratio for square viewport
-      if (camera instanceof THREE.PerspectiveCamera) {
-        camera.aspect = 1 // Square aspect ratio
-        camera.updateProjectionMatrix()
-      }
-
-      console.log("[v0] Preloading first batch of models...")
-      const preloadBatchSize = 5
-      const preloadPromises = []
-      for (let i = 0; i < Math.min(preloadBatchSize, totalChairs); i++) {
-        onNavigateToChair(i)
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        if (displayedModelUrl) {
-          preloadPromises.push(useGLTF.preload(displayedModelUrl))
-        }
-      }
-      await Promise.all(preloadPromises)
-      console.log("[v0] First batch preloaded")
-
-      const loadedModelUrls: string[] = []
-
-      // Generate PNG for each chair
-      for (let i = 0; i < totalChairs; i++) {
-        console.log(`[v0] Generating PNG for chair ${i}/${totalChairs}`)
-
-        const nextPreloadIndex = i + preloadBatchSize
-        if (nextPreloadIndex < totalChairs) {
-          // Preload in background without waiting
-          onNavigateToChair(nextPreloadIndex)
-          setTimeout(() => {
-            if (displayedModelUrl) {
-              useGLTF.preload(displayedModelUrl)
-            }
-          }, 50)
-        }
-
-        // Navigate to current chair
-        onNavigateToChair(i)
-
-        console.log(`[v0] Waiting for chair ${i} to load and render...`)
-        await new Promise((resolve) => setTimeout(resolve, 3000)) // Initial wait
-
-        // Check if canvas has content, wait up to 10 more seconds
-        let attempts = 0
-        const maxAttempts = 50 // 50 attempts × 200ms = 10 seconds max
-        while (!hasCanvasContent() && attempts < maxAttempts) {
-          gl.render(scene, camera)
-          await new Promise((resolve) => setTimeout(resolve, 200))
-          attempts++
-        }
-
-        if (attempts >= maxAttempts) {
-          console.warn(`[v0] Chair ${i} may not have loaded properly after ${maxAttempts} attempts`)
-        } else {
-          console.log(`[v0] Chair ${i} loaded successfully after ${attempts} attempts`)
-        }
-
-        // Render a few more frames to ensure stability
-        for (let frame = 0; frame < 5; frame++) {
-          gl.render(scene, camera)
-          await new Promise((resolve) => setTimeout(resolve, 50))
-        }
-
-        console.log(`[v0] Capturing PNG for chair ${i}`)
-
-        // Capture and download PNG
-        const canvas = gl.domElement
-        await new Promise<void>((resolve) => {
-          canvas.toBlob((blob) => {
-            if (blob) {
-              const url = URL.createObjectURL(blob)
-              const link = document.createElement("a")
-              link.href = url
-              link.download = `chair-${i.toString().padStart(4, "0")}.png`
-              link.click()
-              URL.revokeObjectURL(url)
-              console.log(`[v0] Downloaded PNG for chair ${i}`)
-            } else {
-              console.error(`[v0] Failed to create blob for chair ${i}`)
-            }
-            resolve()
-          }, "image/png")
-        })
-
-        if (displayedModelUrl) {
-          loadedModelUrls.push(displayedModelUrl)
-          // Clear models older than 10 chairs ago to free memory
-          if (loadedModelUrls.length > 10) {
-            const urlToClear = loadedModelUrls.shift()
-            if (urlToClear) {
-              console.log(`[v0] Clearing model from cache: ${urlToClear}`)
-              useGLTF.clear(urlToClear)
-            }
-          }
-        }
-
-        // Update progress
-        setPngProgress(Math.round(((i + 1) / totalChairs) * 100))
-
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-
-      console.log("[v0] Clearing all remaining models from cache")
-      loadedModelUrls.forEach((url) => {
-        useGLTF.clear(url)
-      })
-
-      // Restore original state
-      onNavigateToChair(originalChairIndex)
-      scene.background = originalBackground
-      gl.setSize(originalSize.width, originalSize.height, false)
-
-      // Restore camera aspect ratio
-      if (camera instanceof THREE.PerspectiveCamera) {
-        camera.aspect = originalSize.width / originalSize.height
-        camera.updateProjectionMatrix()
-      }
-
-      setIsGeneratingPngs(false)
-      setPngProgress(0)
-      console.log("[v0] PNG sequence generation complete")
-    } catch (error) {
-      console.error("[v0] PNG generation failed:", error)
-      setIsGeneratingPngs(false)
-      setPngProgress(0)
-    }
-  }
-
   const currentPreset = LIGHTING_PRESETS[lightingPreset]
-  const currentBackground = BACKGROUNDS[backgroundIndex]
-
-  const isHighPerformanceDevice =
-    typeof window !== "undefined" && (/iPad|Macintosh/.test(navigator.userAgent) || window.innerWidth >= 1024)
-
-  const useEnhancedRendering = performanceMode && isHighPerformanceDevice
-
-  const shadowMapSize = useEnhancedRendering ? 16384 : 1024
-  const shadowBias = useEnhancedRendering ? -0.00002 : -0.001
-  const shadowRadius = useEnhancedRendering ? 6 : 1
-
   const bgColor = theme === "light" ? "#ffffff" : "#000000"
-  const sceneColor = theme === "light" ? "#ffffff" : "#000000"
-
-  const backgroundStyle = currentBackground.gradient ? currentBackground.gradient : bgColor
-  const sceneBackgroundColor = currentBackground.sceneColor ? currentBackground.sceneColor : sceneColor
 
   return (
-    <div className="w-full h-full relative" style={{ background: backgroundStyle, transition: "background 0.5s ease" }}>
-      {isGeneratingPngs && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-black/80 text-white px-6 py-3 rounded-lg backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm font-medium">Generating PNGs... {pngProgress}%</span>
-          </div>
-        </div>
-      )}
-
+    <div className="w-full h-full" style={{ background: bgColor, transition: "none" }}>
       <Canvas
-        camera={
-          isOrthographic
-            ? {
-                position: [2.75, 5, 2.75],
-                zoom: 100,
-                left: -10,
-                right: 10,
-                top: 10,
-                bottom: -10,
-                near: 0.1,
-                far: 1000,
-              }
-            : { position: [2.75, 5, 2.75], fov: cameraFov }
-        }
-        orthographic={isOrthographic}
-        gl={{
-          antialias: true,
-          alpha: true, // Changed from false to true to enable transparency support
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: useEnhancedRendering ? 1.8 : 1.2,
-          powerPreference: useEnhancedRendering ? "high-performance" : "default",
-          preserveDrawingBuffer: true, // Required for screenshots
-        }}
-        shadows={useEnhancedRendering ? "soft" : true}
-        onCreated={({ camera, controls, gl, scene }) => {
-          cameraRef.current = camera as THREE.PerspectiveCamera
-          controlsRef.current = controls
-          glRef.current = gl
-          sceneRef.current = scene
-        }}
+        camera={{ position: [2.75, 5, 2.75], fov: 50 }}
+        gl={{ antialias: true, alpha: false }}
+        shadows
+        style={{ background: bgColor, transition: "none" }}
       >
-        <CameraController
-          fov={cameraFov}
-          wireframeMode={wireframeMode}
-          modelUrl={displayedModelUrl}
-          isOrthographic={isOrthographic}
-        />
+        <color attach="background" args={[bgColor]} />
 
-        <color attach="background" args={[sceneBackgroundColor]} />
+        <Environment preset={currentPreset.environment} />
 
-        <ambientLight
-          intensity={useEnhancedRendering ? currentPreset.ambientIntensity * 1.3 : currentPreset.ambientIntensity}
-        />
+        <ambientLight intensity={currentPreset.ambientIntensity} />
 
         <directionalLight
           ref={lightRef}
           position={mainLightPos}
-          intensity={useEnhancedRendering ? currentPreset.mainLight.intensity * 1.5 : currentPreset.mainLight.intensity}
+          intensity={currentPreset.mainLight.intensity}
           color={currentPreset.mainLight.color}
           castShadow
-          shadow-mapSize-width={shadowMapSize}
-          shadow-mapSize-height={shadowMapSize}
-          shadow-camera-far={60}
+          shadow-mapSize-width={4096}
+          shadow-mapSize-height={4096}
+          shadow-camera-far={50}
           shadow-camera-near={0.1}
-          shadow-camera-left={-20}
-          shadow-camera-right={20}
-          shadow-camera-top={20}
-          shadow-camera-bottom={-20}
-          shadow-bias={shadowBias}
-          shadow-normalBias={useEnhancedRendering ? 0.015 : 0.05}
-          shadow-radius={shadowRadius}
+          shadow-camera-left={-15}
+          shadow-camera-right={15}
+          shadow-camera-top={15}
+          shadow-camera-bottom={-15}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.05}
         />
 
         <directionalLight
           ref={fillLightRef}
           position={fillLightPos}
-          intensity={useEnhancedRendering ? currentPreset.fillLight.intensity * 1.4 : currentPreset.fillLight.intensity}
+          intensity={currentPreset.fillLight.intensity}
           color={currentPreset.fillLight.color}
-          castShadow={useEnhancedRendering}
-          shadow-mapSize-width={useEnhancedRendering ? 8192 : 1024}
-          shadow-mapSize-height={useEnhancedRendering ? 8192 : 1024}
-          shadow-bias={shadowBias}
-          shadow-radius={shadowRadius}
         />
 
         <spotLight
           ref={spotLightRef}
           position={spotLightPos}
-          intensity={useEnhancedRendering ? currentPreset.spotLight.intensity * 1.8 : currentPreset.spotLight.intensity}
+          intensity={currentPreset.spotLight.intensity}
           color={currentPreset.spotLight.color}
-          angle={currentPreset.spotLight.angle}
-          penumbra={0.8}
-          castShadow={useEnhancedRendering}
-          shadow-mapSize-width={useEnhancedRendering ? 8192 : 1024}
-          shadow-mapSize-height={useEnhancedRendering ? 8192 : 1024}
-          shadow-bias={shadowBias}
-          shadow-radius={shadowRadius}
+          angle={0.6}
+          penumbra={1}
         />
 
-        <directionalLight
-          ref={rimLightRef}
-          position={rimLightPos}
-          intensity={useEnhancedRendering ? currentPreset.rimLight.intensity * 1.6 : currentPreset.rimLight.intensity}
-          color={currentPreset.rimLight.color}
-          castShadow={false}
-        />
-
-        {showGround && (
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-            <planeGeometry args={[100, 100]} />
-            <shadowMaterial
-              opacity={useEnhancedRendering ? (theme === "light" ? 0.5 : 0.7) : theme === "light" ? 0.3 : 0.5}
-              transparent
-            />
-          </mesh>
-        )}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+          <planeGeometry args={[100, 100]} />
+          <shadowMaterial opacity={theme === "light" ? 0.3 : 0.5} transparent />
+        </mesh>
 
         <Suspense fallback={null}>
-          {previousModelUrl && (
-            <ModelWithWireframe
-              key={previousModelUrl}
-              url={previousModelUrl}
-              isExploded={isExploded}
-              lightPosition={new THREE.Vector3(...mainLightPos)}
-              opacity={1 - transitionProgress}
-              wireframeMode={wireframeMode}
-              materialPreset={materialPreset}
-            />
-          )}
-          <ModelWithWireframe
+          <Model
             key={displayedModelUrl}
             url={displayedModelUrl}
             isExploded={isExploded}
-            lightPosition={new THREE.Vector3(...mainLightPos)}
-            opacity={transitionProgress}
-            wireframeMode={wireframeMode}
-            materialPreset={materialPreset}
+            lightPosition={lightPosition}
           />
         </Suspense>
 
@@ -1556,163 +721,8 @@ export function ModelViewer({
           dampingFactor={0.05}
           minDistance={1}
           maxDistance={15}
-          autoRotate={autoRotate}
-          autoRotateSpeed={autoRotateSpeed}
-          mouseButtons={{
-            LEFT: THREE.MOUSE.ROTATE,
-            MIDDLE: THREE.MOUSE.DOLLY,
-            RIGHT: undefined, // Disable right-click panning
-          }}
         />
-
-        {useEnhancedRendering && (
-          <EffectComposer>
-            <DepthOfField focusDistance={0.015} focalLength={0.08} bokehScale={4} height={720} />
-            <SSAO samples={64} radius={0.08} intensity={50} luminanceInfluence={0.5} color="black" />
-            {bloomEnabled && <Bloom intensity={0.5} luminanceThreshold={0.85} luminanceSmoothing={0.95} />}
-          </EffectComposer>
-        )}
       </Canvas>
     </div>
   )
-}
-
-function CameraController({
-  fov,
-  wireframeMode,
-  modelUrl,
-  isOrthographic,
-}: {
-  fov: number
-  wireframeMode: boolean
-  modelUrl: string
-  isOrthographic: boolean
-}) {
-  const { camera, scene, controls, size } = useThree()
-
-  useEffect(() => {
-    if (camera instanceof THREE.PerspectiveCamera && !isOrthographic) {
-      camera.fov = fov
-      camera.updateProjectionMatrix()
-    }
-  }, [fov, camera, isOrthographic])
-
-  useEffect(() => {
-    if (camera instanceof THREE.OrthographicCamera && isOrthographic) {
-      const aspect = size.width / size.height
-      const zoom = camera.zoom
-      const height = 10 / zoom
-      const width = height * aspect
-
-      camera.left = -width
-      camera.right = width
-      camera.top = height
-      camera.bottom = -height
-      camera.updateProjectionMatrix()
-    }
-  }, [camera, size, isOrthographic])
-
-  useEffect(() => {
-    const handleAutoFrame = () => {
-      const box = new THREE.Box3()
-      scene.traverse((obj) => {
-        if (obj instanceof THREE.Mesh && obj.geometry) {
-          box.expandByObject(obj)
-        }
-      })
-
-      if (!box.isEmpty()) {
-        const center = box.getCenter(new THREE.Vector3())
-        const size = box.getSize(new THREE.Vector3())
-        const maxDim = Math.max(size.x, size.y, size.z)
-
-        if (camera instanceof THREE.PerspectiveCamera) {
-          const fovRad = camera.fov * (Math.PI / 180)
-          const cameraDistance = Math.abs(maxDim / Math.sin(fovRad / 2)) * 1.5
-
-          const direction = camera.position.clone().sub(center).normalize()
-          camera.position.copy(center).add(direction.multiplyScalar(cameraDistance))
-        } else if (camera instanceof THREE.OrthographicCamera) {
-          // For orthographic, adjust zoom instead of distance
-          camera.zoom = 10 / maxDim
-          camera.updateProjectionMatrix()
-        }
-
-        if (controls) {
-          ;(controls as any).target.copy(center)
-          ;(controls as any).update()
-        }
-      }
-    }
-
-    window.addEventListener("autoframe", handleAutoFrame)
-    return () => window.removeEventListener("autoframe", handleAutoFrame)
-  }, [camera, scene, controls])
-
-  return null
-}
-
-function ModelWithWireframe({
-  url,
-  isExploded,
-  lightPosition,
-  opacity,
-  wireframeMode,
-  materialPreset,
-}: ModelProps & { wireframeMode: boolean; materialPreset: MaterialPreset }) {
-  const { scene } = useGLTF(url)
-  const originalMaterialsRef = useRef<Map<THREE.Material, { roughness: number; metalness: number }>>(new Map())
-
-  useEffect(() => {
-    if (!scene) return // Ensure scene is loaded before traversing
-
-    scene.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        const materials = Array.isArray(child.material) ? child.material : [child.material]
-
-        materials.forEach((mat) => {
-          if (mat && mat instanceof THREE.MeshStandardMaterial) {
-            // Store original properties on first encounter
-            if (!originalMaterialsRef.current.has(mat)) {
-              originalMaterialsRef.current.set(mat, {
-                roughness: mat.roughness,
-                metalness: mat.metalness,
-              })
-            }
-
-            mat.wireframe = wireframeMode
-
-            // Apply material preset
-            const preset = MATERIAL_PRESETS[materialPreset]
-            if (preset.roughness !== null) {
-              mat.roughness = preset.roughness
-            } else {
-              // Restore original
-              const original = originalMaterialsRef.current.get(mat)
-              if (original) {
-                mat.roughness = original.roughness
-              }
-            }
-
-            if (preset.metalness !== null) {
-              mat.metalness = preset.metalness
-            } else {
-              // Restore original
-              const original = originalMaterialsRef.current.get(mat)
-              if (original) {
-                mat.metalness = original.metalness
-              }
-            }
-
-            mat.clearcoat = preset.clearcoat
-            mat.clearcoatRoughness = preset.clearcoatRoughness
-            mat.needsUpdate = true
-          }
-        })
-      }
-    })
-  }, [scene, wireframeMode, materialPreset]) // Depend on scene, wireframeMode and materialPreset
-
-  // Pass the opacity prop to the underlying Model component
-  return <Model url={url} isExploded={isExploded} lightPosition={lightPosition} opacity={opacity} />
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { X, ChevronDown, Sun, Moon, Gauge, Ship } from "lucide-react"
+import { X, ChevronDown, Sun, Moon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
 
@@ -29,19 +29,9 @@ interface ChairInfoOverlayProps {
   onClose: () => void
   theme: "light" | "dark"
   onThemeToggle: () => void
-  performanceMode: boolean
-  onPerformanceModeToggle: () => void
 }
 
-export function ChairInfoOverlay({
-  data,
-  isOpen,
-  onClose,
-  theme,
-  onThemeToggle,
-  performanceMode,
-  onPerformanceModeToggle,
-}: ChairInfoOverlayProps) {
+export function ChairInfoOverlay({ data, isOpen, onClose, theme, onThemeToggle }: ChairInfoOverlayProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isKeywordsExpanded, setIsKeywordsExpanded] = useState(false)
 
@@ -74,17 +64,8 @@ export function ChairInfoOverlay({
       <div className="w-full max-w-sm pointer-events-auto animate-in slide-in-from-right duration-300">
         <div className={`${bgClass} backdrop-blur-xl border ${borderClass} rounded-xl shadow-2xl overflow-hidden`}>
           <div className={`flex items-center justify-between p-4 border-b ${borderClass}`}>
-            <h2 className={`text-2xl font-serif ${textClass}`}>{data?.name || "stol"}</h2>
+            <h2 className={`text-2xl font-serif ${textClass}`}>Chair</h2>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onPerformanceModeToggle}
-                className={`rounded-full w-8 h-8 ${textMutedClass} ${theme === "light" ? "hover:text-black" : "hover:text-white"} ${hoverBgClass} flex-shrink-0`}
-                title={performanceMode ? "Performance mode enabled" : "Performance mode disabled"}
-              >
-                {performanceMode ? <Ship className="w-4 h-4" /> : <Gauge className="w-4 h-4" />}
-              </Button>
               <Button
                 variant="ghost"
                 size="icon"

@@ -1,52 +1,27 @@
 "use client"
 
 import type React from "react"
-import { modelCacheManager } from "@/lib/model-cache"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Zap, ChevronLeft, ChevronRight, Info } from "lucide-react"
+import { Zap, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ModelViewer } from "@/components/model-viewer"
 import { ChairInfoOverlay } from "@/components/chair-info-overlay"
-import { getChairModels, getChairData } from "./actions"
 
-const isMobile = () => {
-  if (typeof window === "undefined") return false
-  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768
-}
-
-export default function Home() {
-  const [chairIndex, setChairIndex] = useState(() => {
-    if (typeof window === "undefined") return 0
-    const hash = window.location.hash.slice(1) // Remove '#'
-    // Support both 'c0' format and plain '0' for backwards compatibility
-    const index = hash.startsWith("c") ? Number.parseInt(hash.slice(1)) || 0 : Number.parseInt(hash) || 0
-    return index
-  })
-
-  const [chairModels, setChairModels] = useState<string[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+export default function HomePage() {
+  const [modelUrl, setModelUrl] = useState<string | null>(null)
   const [isExploded, setIsExploded] = useState(false)
   const [showInfo, setShowInfo] = useState(true)
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStartX, setDragStartX] = useState(0)
   const [showInfoOverlay, setShowInfoOverlay] = useState(false)
-  const [chairData, setChairData] = useState<any>(null)
   const [autoBreakEnabled, setAutoBreakEnabled] = useState(false)
-  const [performanceMode, setPerformanceMode] = useState(() => {
-    if (typeof window === "undefined") return false
-    const saved = localStorage.getItem("performanceMode")
-    return saved === "true"
-  })
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "dark"
     return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"
   })
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const infoTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const explosionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const navRef = useRef<HTMLDivElement>(null)
   const lastTapTimeRef = useRef<number>(0)
 
   useEffect(() => {
@@ -64,101 +39,7 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    let mounted = true
-
-    const loadModels = async () => {
-      try {
-        setIsLoading(true)
-        setLoadError(null)
-        const models = await getChairModels()
-
-        if (!mounted) return
-
-        if (models.length > 0) {
-          setChairModels(models)
-          setLoadError(null)
-        } else {
-          setLoadError("No chair models found")
-        }
-      } catch (error) {
-        console.error("[v0] Error loading chair models:", error)
-        if (mounted) {
-          setLoadError("Failed to load chair models. Please refresh the page.")
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    loadModels()
-
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (chairModels.length === 0) return
-
-    let mounted = true
-
-    const loadChairData = async () => {
-      try {
-        const data = await getChairData(chairIndex)
-        if (mounted) {
-          setChairData(data)
-        }
-      } catch (error) {
-        console.error("[v0] Error loading chair data:", error)
-      }
-    }
-
-    loadChairData()
-
-    return () => {
-      mounted = false
-    }
-  }, [chairIndex, chairModels.length])
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.location.hash = `c${chairIndex}`
-    }
-  }, [chairIndex])
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.slice(1) // Remove '#'
-      const index = hash.startsWith("c") ? Number.parseInt(hash.slice(1)) || 0 : Number.parseInt(hash) || 0
-      if (index !== chairIndex && index >= 0 && index < chairModels.length) {
-        setChairIndex(index)
-      }
-    }
-
-    window.addEventListener("hashchange", handleHashChange)
-    return () => window.removeEventListener("hashchange", handleHashChange)
-  }, [chairIndex, chairModels.length])
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.addEventListener("beforeunload", () => {
-        modelCacheManager.clearAll()
-      })
-    }
-
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("beforeunload", () => {
-          modelCacheManager.clearAll()
-        })
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!autoBreakEnabled) return
+    if (!autoBreakEnabled || !modelUrl) return
 
     if (explosionTimeoutRef.current) {
       clearTimeout(explosionTimeoutRef.current)
@@ -174,7 +55,7 @@ export default function Home() {
         clearTimeout(explosionTimeoutRef.current)
       }
     }
-  }, [chairIndex, autoBreakEnabled])
+  }, [modelUrl, autoBreakEnabled])
 
   useEffect(() => {
     if (showInfo) {
@@ -190,95 +71,42 @@ export default function Home() {
         clearTimeout(infoTimeoutRef.current)
       }
     }
-  }, [showInfo, isExploded, chairIndex])
+  }, [showInfo, isExploded, modelUrl])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") {
-        e.preventDefault()
-        handlePrevious()
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault()
-        handleNext()
+  const handleFileUpload = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+
+      // Revoke previous URL if exists
+      if (modelUrl) {
+        URL.revokeObjectURL(modelUrl)
       }
-    }
 
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [chairIndex, chairModels.length])
-
-  const navigateToChair = useCallback(
-    (index: number) => {
-      if (index < 0 || index >= chairModels.length) return
-      setChairIndex(index)
+      const url = URL.createObjectURL(file)
+      setModelUrl(url)
+      setIsExploded(false)
       setShowInfo(true)
     },
-    [chairModels.length],
+    [modelUrl],
   )
 
-  const handlePrevious = useCallback(() => {
-    const newIndex = chairIndex === 0 ? chairModels.length - 1 : chairIndex - 1
-    navigateToChair(newIndex)
-  }, [chairIndex, chairModels.length, navigateToChair])
-
-  const handleNext = useCallback(() => {
-    const newIndex = chairIndex === chairModels.length - 1 ? 0 : chairIndex + 1
-    navigateToChair(newIndex)
-  }, [chairIndex, chairModels.length, navigateToChair])
-
-  const getVisibleDots = () => {
-    const totalChairs = chairModels.length
-    const maxDots = Math.min(10, totalChairs)
-
-    if (totalChairs <= maxDots) {
-      return Array.from({ length: totalChairs }, (_, i) => i)
+  const handleCanvasClick = useCallback(() => {
+    if (!modelUrl) {
+      fileInputRef.current?.click()
     }
-
-    const activeDotPosition = Math.floor((chairIndex / (totalChairs - 1)) * (maxDots - 1))
-
-    return { maxDots, activeDotPosition, totalChairs }
-  }
-
-  const dotInfo = getVisibleDots()
-  const visibleDots = Array.isArray(dotInfo) ? dotInfo : Array.from({ length: dotInfo.maxDots }, (_, i) => i)
-  const activeDotPosition = Array.isArray(dotInfo) ? chairIndex : dotInfo.activeDotPosition
-
-  const handleDotPointerDown = (e: React.PointerEvent, index: number) => {
-    if (Array.isArray(dotInfo)) {
-      navigateToChair(index)
-    } else {
-      setIsDragging(true)
-      setDragStartX(e.clientX)
-      const targetIndex = Math.round((index / (dotInfo.maxDots - 1)) * (dotInfo.totalChairs - 1))
-      navigateToChair(targetIndex)
-    }
-  }
-
-  const handleDotPointerMove = (e: React.PointerEvent) => {
-    if (!isDragging || !navRef.current || Array.isArray(dotInfo)) return
-
-    const rect = navRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const percentage = Math.max(0, Math.min(1, x / rect.width))
-    const targetIndex = Math.round(percentage * (dotInfo.totalChairs - 1))
-
-    if (targetIndex !== chairIndex) {
-      navigateToChair(targetIndex)
-    }
-  }
-
-  const handleDotPointerUp = () => {
-    setIsDragging(false)
-  }
+  }, [modelUrl])
 
   const handleExplodeToggle = () => {
     const now = Date.now()
     const timeSinceLastTap = now - lastTapTimeRef.current
 
+    // Double-tap detected (within 300ms)
     if (timeSinceLastTap < 300) {
       setAutoBreakEnabled(!autoBreakEnabled)
       setShowInfo(true)
     } else {
+      // Single tap - toggle explosion
       setIsExploded(!isExploded)
       setShowInfo(true)
     }
@@ -290,79 +118,45 @@ export default function Home() {
     setTheme(theme === "light" ? "dark" : "light")
   }
 
-  const handlePerformanceModeToggle = () => {
-    const newMode = !performanceMode
-    setPerformanceMode(newMode)
-    if (typeof window !== "undefined") {
-      localStorage.setItem("performanceMode", String(newMode))
-    }
-  }
-
-  if (loadError) {
-    return (
-      <div
-        className="h-dvh w-screen flex items-center justify-center p-6"
-        style={{ background: theme === "light" ? "#ffffff" : "#000000" }}
-      >
-        <div className="text-center max-w-md">
-          <p className={`text-lg mb-4 ${theme === "light" ? "text-black" : "text-white"}`}>{loadError}</p>
-          <Button
-            onClick={() => window.location.reload()}
-            className={theme === "light" ? "bg-black text-white" : "bg-white text-black"}
-          >
-            Refresh Page
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  if (isLoading || chairModels.length === 0) {
-    return (
-      <div
-        className="h-dvh w-screen flex items-center justify-center"
-        style={{ background: theme === "light" ? "#ffffff" : "#000000" }}
-      >
-        <div
-          className="w-2 h-2 rounded-full animate-pulse"
-          style={{ background: theme === "light" ? "#000000" : "#ffffff" }}
-        />
-      </div>
-    )
-  }
-
-  const modelUrl = chairModels[chairIndex]
-
-  if (!modelUrl && chairModels.length > 0) {
-    setChairIndex(0)
-    return null
-  }
-
   return (
     <div
       className="h-dvh w-screen relative overflow-hidden"
       style={{ background: theme === "light" ? "#ffffff" : "#000000", transition: "none" }}
     >
-      <div className="h-full w-full relative">
-        <ModelViewer
-          modelUrl={modelUrl}
-          isExploded={isExploded}
-          chairIndex={chairIndex}
-          theme={theme}
-          performanceMode={performanceMode}
-          onToggleExplode={handleExplodeToggle} // Added callback for keyboard explode toggle
-          totalChairs={chairModels.length} // Added props for GIF generation
-          onNavigateToChair={navigateToChair} // Added props for GIF generation
-        />
+      {/* Hidden file input */}
+      <input ref={fileInputRef} type="file" accept=".glb,.gltf" onChange={handleFileUpload} className="hidden" />
 
-        {showInfo && chairData && (
-          <div className="absolute top-6 left-6 z-10 pointer-events-none">
-            <div
-              className={`backdrop-blur-xl border rounded-2xl px-4 py-2 shadow-2xl ${
-                theme === "light" ? "bg-white/80 border-black/10 text-black" : "bg-black/80 border-white/10 text-white"
-              }`}
-            >
-              <p className="text-sm font-medium">{chairData?.name || "stol"}</p>
+      <div className="h-full w-full relative">
+        {modelUrl ? (
+          <ModelViewer modelUrl={modelUrl} isExploded={isExploded} chairIndex={0} theme={theme} />
+        ) : (
+          <div className="h-full w-full flex items-center justify-center cursor-pointer" onClick={handleCanvasClick}>
+            <div className="text-center px-8">
+              <div
+                className={`w-24 h-24 mx-auto mb-6 rounded-full flex items-center justify-center ${
+                  theme === "light" ? "bg-black/5" : "bg-white/5"
+                }`}
+              >
+                <svg
+                  className={`w-12 h-12 ${theme === "light" ? "text-black/40" : "text-white/40"}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
+              <p className={`text-lg font-medium mb-2 ${theme === "light" ? "text-black" : "text-white"}`}>
+                Tap anywhere to upload
+              </p>
+              <p className={`text-sm ${theme === "light" ? "text-black/50" : "text-white/50"}`}>
+                GLB or GLTF files supported
+              </p>
             </div>
           </div>
         )}
@@ -387,13 +181,11 @@ export default function Home() {
         </div>
 
         <ChairInfoOverlay
-          data={chairData}
+          data={null}
           isOpen={showInfoOverlay}
           onClose={() => setShowInfoOverlay(false)}
           theme={theme}
           onThemeToggle={handleThemeToggle}
-          performanceMode={performanceMode}
-          onPerformanceModeToggle={handlePerformanceModeToggle}
         />
 
         <div className="absolute bottom-0 left-0 right-0 pb-[max(2rem,env(safe-area-inset-bottom))] flex justify-center z-10">
@@ -405,59 +197,19 @@ export default function Home() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={handlePrevious}
+              onClick={() => fileInputRef.current?.click()}
               className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
                 theme === "light" ? "text-black hover:bg-black/10" : "text-white hover:bg-white/10"
               }`}
             >
-              <ChevronLeft className="w-5 h-5" />
-            </Button>
-
-            <div
-              ref={navRef}
-              className="flex items-center gap-1 px-2 cursor-pointer touch-none"
-              onPointerDown={(e) => {
-                const rect = navRef.current?.getBoundingClientRect()
-                if (!rect) return
-                const x = e.clientX - rect.left
-                const index = Math.floor((x / rect.width) * visibleDots.length)
-                handleDotPointerDown(e, index)
-              }}
-              onPointerMove={handleDotPointerMove}
-              onPointerUp={handleDotPointerUp}
-              onPointerCancel={handleDotPointerUp}
-            >
-              {visibleDots.map((_, index) => {
-                const isActive = index === activeDotPosition
-                const isEdge = index === 0 || index === visibleDots.length - 1
-                const opacity = isEdge && !Array.isArray(dotInfo) ? "opacity-30" : "opacity-100"
-
-                return (
-                  <div
-                    key={index}
-                    className={`h-1.5 rounded-full transition-all ${opacity} ${
-                      theme === "light"
-                        ? isActive
-                          ? "bg-black w-4"
-                          : "bg-black/30 w-1.5"
-                        : isActive
-                          ? "bg-white w-4"
-                          : "bg-white/30 w-1.5"
-                    }`}
-                  />
-                )
-              })}
-            </div>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleNext}
-              className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
-                theme === "light" ? "text-black hover:bg-black/10" : "text-white hover:bg-white/10"
-              }`}
-            >
-              <ChevronRight className="w-5 h-5" />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                />
+              </svg>
             </Button>
 
             <div className={`w-px h-8 ${theme === "light" ? "bg-black/10" : "bg-white/10"}`} />
@@ -466,6 +218,7 @@ export default function Home() {
               variant="ghost"
               size="icon"
               onClick={handleExplodeToggle}
+              disabled={!modelUrl}
               className={`rounded-full w-10 h-10 transition-all active:scale-95 ${
                 theme === "light"
                   ? isExploded
@@ -474,7 +227,7 @@ export default function Home() {
                   : isExploded
                     ? "bg-white/20 text-white"
                     : "text-white hover:bg-white/10"
-              } ${autoBreakEnabled ? "ring-2 ring-red-500/50" : ""}`}
+              } ${autoBreakEnabled ? "ring-2 ring-red-500/50" : ""} ${!modelUrl ? "opacity-30" : ""}`}
             >
               <Zap className="w-5 h-5" />
             </Button>

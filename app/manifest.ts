@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next"
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "sitt.iverfinne.no",
-    short_name: "sitt.iverfinne.no",
+    name: "Chair Exploder",
+    short_name: "Chair Exploder",
     description: "Interactive 3D chair model viewer with explosion effects",
     start_url: "/",
     scope: "/",
